@@ -1,0 +1,20 @@
+---
+description: User controls dev server start/stop — agent must not run npm run dev or kill server processes unless explicitly asked
+alwaysApply: true
+---
+
+# Dev Server Lifecycle
+
+The user is solely responsible for starting and stopping the SmartDining dev server.
+
+## Do NOT (unless the user explicitly asks)
+
+- Run `npm run dev`, `npm start`, or `node server/server.js`
+- Kill, restart, or background server processes (e.g. `pkill`, `kill` on port 3000)
+- Start nodemon or any long-running server in the terminal for "verification"
+
+## Instead
+
+- Tell the user to run `npm run dev` when they need the server running
+- Use read-only checks when possible (e.g. reading code, static analysis)
+- If a running server is required to verify something, ask the user to start it or confirm it is already running

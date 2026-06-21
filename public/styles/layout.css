@@ -345,13 +345,135 @@
   margin-top: 1rem;
 }
 
-.processing-summary pre {
-  background: rgba(0, 0, 0, 0.3);
-  padding: 1rem;
+/* Meal analysis results */
+.meal-result-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.meal-result-header h3 {
+  margin: 0;
+}
+
+.confidence-notes {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  margin-bottom: 1rem;
+}
+
+.badge.confidence-high {
+  background: rgba(111, 247, 200, 0.15);
+  color: var(--color-success);
+}
+
+.badge.confidence-medium {
+  background: rgba(255, 209, 102, 0.15);
+  color: var(--color-warning);
+}
+
+.badge.confidence-low {
+  background: rgba(255, 107, 107, 0.15);
+  color: var(--color-danger);
+}
+
+.meal-totals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.meal-total-card {
+  text-align: center;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
   border-radius: var(--radius-sm);
-  overflow-x: auto;
-  font-size: 0.8rem;
-  max-height: 300px;
+  border: 1px solid var(--color-border);
+}
+
+.meal-total-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.meal-total-label {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-top: 0.25rem;
+}
+
+.meal-section-title {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.meal-items-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.meal-items-table th,
+.meal-items-table td {
+  padding: 0.5rem 0.6rem;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.meal-items-table th {
+  color: var(--color-text-muted);
+  font-weight: 500;
+  font-size: 0.75rem;
+}
+
+.meal-items-table tr.flagged-item td:first-child {
+  color: var(--color-warning);
+}
+
+.flag-icon {
+  cursor: help;
+}
+
+.flag-reason-row td {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  padding-top: 0;
+  border-bottom: none;
+}
+
+.insight-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+  font-size: 0.875rem;
+}
+
+.insight-concerns li {
+  color: var(--color-danger);
+  padding: 0.2rem 0;
+}
+
+.insight-concerns li::before {
+  content: "− ";
+}
+
+.insight-positives li {
+  color: var(--color-success);
+  padding: 0.2rem 0;
+}
+
+.insight-positives li::before {
+  content: "+ ";
+}
+
+.insight-summary {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  margin-top: 0.5rem;
 }
 
 /* Analytics */

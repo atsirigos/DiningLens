@@ -3,6 +3,7 @@ const path = require('path');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Anthropic = require('@anthropic-ai/sdk');
 const { resolveApiKey, resolveModel } = require('./aiConfig');
+const { SYSTEM_PROMPT, buildUserMessage } = require('../prompts/mealAnalysisPrompt');
 
 const MIME_TYPES = {
   '.jpg': 'image/jpeg',
@@ -11,46 +12,19 @@ const MIME_TYPES = {
   '.webp': 'image/webp',
 };
 
-function buildPrompt(settings) {
-  const zones = settings.zones || [];
-  const commonFoods = settings.commonFoods || [];
-
-  const zoneList = zones.length
-    ? zones.map((z) => `- "${z.name}" (region: x=${z.x.toFixed(2)}, y=${z.y.toFixed(2)}, w=${z.width.toFixed(2)}, h=${z.height.toFixed(2)})`).join('\n')
-    : '- Analyze the entire image as one zone called "Full Table"';
-
-  const foodsHint = commonFoods.length
-    ? `\nCommon foods to look for: ${commonFoods.join(', ')}.`
-    : '';
-
-  return `Analyze this meal photo. For each defined zone, identify food items present.
-
-Defined zones (coordinates are normalized 0-1 relative to image dimensions):
-${zoneList}
-${foodsHint}
-
-Return JSON only, no markdown. Use this exact schema:
-{
-  "zones": [
-    {
-      "name": "zone name",
-      "foods": [
-        {
-          "item": "food name",
-          "ingredients": ["ingredient1", "ingredient2"],
-          "portion": "small|medium|large"
-        }
-      ]
-    }
-  ]
-}
-
-If no zones are defined, analyze the full image as a single zone.`;
-}
-
 function parseJsonResponse(text) {
   const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
   return JSON.parse(cleaned);
+}
+
+function validateMealResult(parsed) {
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('Invalid meal analysis response');
+  }
+  if (!parsed.meal_name || !Array.isArray(parsed.items) || !parsed.totals) {
+    throw new Error('Meal analysis response is missing required fields');
+  }
+  return parsed;
 }
 
 function readImage(filePath) {
@@ -64,12 +38,15 @@ function readImage(filePath) {
   return { mimeType, base64 };
 }
 
-async function analyzeWithGoogle(apiKey, modelId, mimeType, base64, prompt) {
+async function analyzeWithGoogle(apiKey, modelId, mimeType, base64, userMessage) {
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: modelId });
+  const model = genAI.getGenerativeModel({
+    model: modelId,
+    systemInstruction: SYSTEM_PROMPT,
+  });
 
   const result = await model.generateContent([
-    prompt,
+    userMessage,
     {
       inlineData: {
         mimeType,
@@ -81,12 +58,13 @@ async function analyzeWithGoogle(apiKey, modelId, mimeType, base64, prompt) {
   return result.response.text();
 }
 
-async function analyzeWithAnthropic(apiKey, modelId, mimeType, base64, prompt) {
+async function analyzeWithAnthropic(apiKey, modelId, mimeType, base64, userMessage) {
   const client = new Anthropic({ apiKey });
 
   const message = await client.messages.create({
     model: modelId,
-    max_tokens: 4096,
+    max_tokens: 2048,
+    system: SYSTEM_PROMPT,
     messages: [
       {
         role: 'user',
@@ -101,7 +79,7 @@ async function analyzeWithAnthropic(apiKey, modelId, mimeType, base64, prompt) {
           },
           {
             type: 'text',
-            text: prompt,
+            text: userMessage,
           },
         ],
       },
@@ -116,7 +94,7 @@ async function analyzeWithAnthropic(apiKey, modelId, mimeType, base64, prompt) {
   return textBlock.text;
 }
 
-async function analyzeImage(filePath, settings) {
+async function analyzeImage(filePath, settings, userContext) {
   const provider = settings?.ai?.provider || 'google';
 
   const apiKey = resolveApiKey(settings);
@@ -126,21 +104,22 @@ async function analyzeImage(filePath, settings) {
 
   const { mimeType, base64 } = readImage(filePath);
   const modelId = resolveModel(settings);
-  const prompt = buildPrompt(settings);
+  const userMessage = buildUserMessage(userContext);
 
   let text;
   switch (provider) {
     case 'google':
-      text = await analyzeWithGoogle(apiKey, modelId, mimeType, base64, prompt);
+      text = await analyzeWithGoogle(apiKey, modelId, mimeType, base64, userMessage);
       break;
     case 'anthropic':
-      text = await analyzeWithAnthropic(apiKey, modelId, mimeType, base64, prompt);
+      text = await analyzeWithAnthropic(apiKey, modelId, mimeType, base64, userMessage);
       break;
     default:
       throw new Error(`Provider "${provider}" is not supported`);
   }
 
-  return parseJsonResponse(text);
+  const parsed = parseJsonResponse(text);
+  return validateMealResult(parsed);
 }
 
 module.exports = { analyzeImage };

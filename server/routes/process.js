@@ -48,7 +48,7 @@ router.get('/results', (req, res) => {
 });
 
 router.post('/process', async (req, res) => {
-  const { filename } = req.body;
+  const { filename, userContext } = req.body;
 
   if (!filename) {
     return res.status(400).json({ error: 'filename is required' });
@@ -67,7 +67,7 @@ router.post('/process', async (req, res) => {
 
   try {
     const settings = getSettings();
-    const result = await analyzeImage(filePath, settings);
+    const result = await analyzeImage(filePath, settings, userContext);
     result.processedAt = new Date().toISOString();
     result.filename = filename;
 

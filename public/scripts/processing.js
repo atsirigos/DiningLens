@@ -1,10 +1,15 @@
 import { apiFetch, formatBytes, formatDate, showToast } from './utils.js';
+import { renderMealSummary, PROCESSING_ERROR_MSG } from './mealResults.js';
 
 let files = [];
 let results = {};
 let processing = new Set();
 
 const container = () => document.getElementById('processing-content');
+
+function getUserContext() {
+  return document.getElementById('meal-context')?.value.trim() || '';
+}
 
 function getStatus(filename) {
   if (processing.has(filename)) return 'processing';
@@ -38,6 +43,16 @@ function render() {
   const doneCount = imageFiles.filter((f) => results[f.name]).length;
 
   container().innerHTML = `
+    <div class="card" style="padding: 1rem;">
+      <div class="form-group" style="margin-bottom: 0;">
+        <label for="meal-context">Meal context (optional)</label>
+        <input
+          type="text"
+          id="meal-context"
+          placeholder="e.g. half portion, restaurant meal, dressing on the side"
+        >
+      </div>
+    </div>
     <div class="processing-actions">
       <button class="btn btn-primary" id="process-all-btn" ${processing.size > 0 ? 'disabled' : ''}>
         Process All (${imageFiles.length - doneCount} remaining)
@@ -102,21 +117,25 @@ async function processFile(filename) {
   processing.add(filename);
   updateRowStatus(filename, 'processing');
 
+  const userContext = getUserContext();
+
   try {
     const data = await apiFetch('/api/process', {
       method: 'POST',
-      body: JSON.stringify({ filename }),
+      body: JSON.stringify({ filename, userContext: userContext || undefined }),
     });
     results[filename] = data.result;
     showToast(`${filename} processed successfully`, 'success');
     showSummary(data.result);
   } catch (err) {
     updateRowStatus(filename, 'error');
-    showToast(`Failed to process ${filename}: ${err.message}`, 'error');
+    showToast(PROCESSING_ERROR_MSG, 'error');
   } finally {
     processing.delete(filename);
     updateRowStatus(filename, getStatus(filename));
     render();
+    const ctx = document.getElementById('meal-context');
+    if (ctx && userContext) ctx.value = userContext;
   }
 }
 
@@ -138,6 +157,7 @@ async function processAll() {
     return;
   }
 
+  const userContext = getUserContext();
   const progressWrap = document.getElementById('batch-progress');
   const progressFill = document.getElementById('progress-fill');
   const progressText = document.getElementById('progress-text');
@@ -146,6 +166,7 @@ async function processAll() {
 
   let completed = 0;
   const total = imageFiles.length;
+  let lastResult = null;
 
   for (const file of imageFiles) {
     processing.add(file.name);
@@ -154,12 +175,13 @@ async function processAll() {
     try {
       const data = await apiFetch('/api/process', {
         method: 'POST',
-        body: JSON.stringify({ filename: file.name }),
+        body: JSON.stringify({ filename: file.name, userContext: userContext || undefined }),
       });
       results[file.name] = data.result;
+      lastResult = data.result;
     } catch (err) {
       updateRowStatus(file.name, 'error');
-      showToast(`Failed: ${file.name}`, 'error');
+      showToast(PROCESSING_ERROR_MSG, 'error');
     } finally {
       processing.delete(file.name);
       completed++;
@@ -170,19 +192,21 @@ async function processAll() {
 
   showToast(`Batch complete: ${completed}/${total} processed`, 'success');
   render();
+  if (lastResult) showSummary(lastResult);
+  const ctx = document.getElementById('meal-context');
+  if (ctx && userContext) ctx.value = userContext;
 }
 
 function showSummary(result) {
   const el = document.getElementById('processing-summary');
   if (!el || !result) return;
 
-  const foodCount = (result.zones || []).reduce((sum, z) => sum + (z.foods?.length || 0), 0);
-
   el.innerHTML = `
     <div class="card processing-summary glass">
-      <h3>Latest Result: ${result.filename || 'Unknown'}</h3>
-      <p>${result.zones?.length || 0} zones detected · ${foodCount} food items found</p>
-      <pre>${JSON.stringify(result, null, 2)}</pre>
+      <p style="font-size: 0.875rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+        Latest: ${result.filename || 'Unknown'} · ${result.processedAt ? formatDate(result.processedAt) : ''}
+      </p>
+      ${renderMealSummary(result)}
     </div>`;
 }
 

@@ -1,4 +1,5 @@
 import { apiFetch, parseFilenameDate, showToast } from './utils.js';
+import { normalizeResultForAnalytics } from './mealResults.js';
 
 let results = {};
 let charts = [];
@@ -15,43 +16,59 @@ function destroyCharts() {
 function computeAggregates() {
   const entries = Object.entries(results);
   const foodFreq = {};
-  const ingredientFreq = {};
-  const seatFoods = {};
-  const timeline = {};
+  const calorieTimeline = {};
+  const confidenceCounts = { High: 0, Medium: 0, Low: 0 };
+  const macroTotals = { protein: 0, carbs: 0, fat: 0, count: 0 };
 
   for (const [filename, result] of entries) {
+    const normalized = normalizeResultForAnalytics(result);
     const date = parseFilenameDate(filename) || new Date(result.processedAt);
     const dateKey = date.toISOString().split('T')[0];
-    timeline[dateKey] = (timeline[dateKey] || 0) + 1;
 
-    for (const zone of result.zones || []) {
-      const seatName = zone.name;
-      if (!seatFoods[seatName]) seatFoods[seatName] = {};
+    if (normalized.type === 'meal' && normalized.totals) {
+      calorieTimeline[dateKey] = (calorieTimeline[dateKey] || 0) + (normalized.totals.calories || 0);
+      macroTotals.protein += normalized.totals.protein_g || 0;
+      macroTotals.carbs += normalized.totals.carbs_total_g || 0;
+      macroTotals.fat += normalized.totals.fat_total_g || 0;
+      macroTotals.count += 1;
 
-      for (const food of zone.foods || []) {
-        foodFreq[food.item] = (foodFreq[food.item] || 0) + 1;
-        seatFoods[seatName][food.item] = (seatFoods[seatName][food.item] || 0) + 1;
-
-        for (const ing of food.ingredients || []) {
-          ingredientFreq[ing] = (ingredientFreq[ing] || 0) + 1;
-        }
+      const conf = normalized.confidence || 'Low';
+      if (confidenceCounts[conf] !== undefined) {
+        confidenceCounts[conf] += 1;
+      } else {
+        confidenceCounts.Low += 1;
       }
+    }
+
+    for (const item of normalized.items) {
+      const name = item.name;
+      if (name) foodFreq[name] = (foodFreq[name] || 0) + 1;
     }
   }
 
-  return { entries, foodFreq, ingredientFreq, seatFoods, timeline };
+  const macroAverages = macroTotals.count
+    ? {
+        protein: macroTotals.protein / macroTotals.count,
+        carbs: macroTotals.carbs / macroTotals.count,
+        fat: macroTotals.fat / macroTotals.count,
+      }
+    : { protein: 0, carbs: 0, fat: 0 };
+
+  return { entries, foodFreq, calorieTimeline, confidenceCounts, macroAverages };
 }
 
 function computeStats(agg) {
-  const { entries, foodFreq, timeline } = agg;
+  const { entries, foodFreq, calorieTimeline } = agg;
   const foods = Object.keys(foodFreq);
   const mostCommon = foods.sort((a, b) => foodFreq[b] - foodFreq[a])[0] || '—';
-  const dates = Object.keys(timeline).sort();
+  const dates = Object.keys(calorieTimeline).sort();
+  const totalCalories = Object.values(calorieTimeline).reduce((s, v) => s + v, 0);
 
   return {
     totalMeals: entries.length,
     uniqueFoods: foods.length,
     mostCommon,
+    totalCalories: Math.round(totalCalories),
     dateRange: dates.length ? `${dates[0]} → ${dates[dates.length - 1]}` : '—',
   };
 }
@@ -72,13 +89,13 @@ function renderStats(stats) {
         <div class="stat-label">Most Common Item</div>
       </div>
       <div class="card stat-card glass">
-        <div class="stat-value" style="font-size: 0.9rem;">${stats.dateRange}</div>
-        <div class="stat-label">Date Range</div>
+        <div class="stat-value">${stats.totalCalories}</div>
+        <div class="stat-label">Total Calories</div>
       </div>
     </div>`;
 }
 
-function renderCharts(agg) {
+function renderCharts() {
   return `
     <div class="charts-grid">
       <div class="card chart-card glass">
@@ -86,24 +103,37 @@ function renderCharts(agg) {
         <div class="chart-container"><canvas id="chart-foods"></canvas></div>
       </div>
       <div class="card chart-card glass">
-        <h3>Per-Seat Breakdown</h3>
-        <div class="chart-container"><canvas id="chart-seats"></canvas></div>
+        <h3>Calorie Timeline</h3>
+        <div class="chart-container"><canvas id="chart-calories"></canvas></div>
       </div>
       <div class="card chart-card glass">
-        <h3>Meal Timeline</h3>
-        <div class="chart-container"><canvas id="chart-timeline"></canvas></div>
+        <h3>Average Macros per Meal</h3>
+        <div class="chart-container"><canvas id="chart-macros"></canvas></div>
       </div>
       <div class="card chart-card glass">
-        <h3>Ingredient Frequency</h3>
-        <div class="chart-container"><canvas id="chart-ingredients"></canvas></div>
+        <h3>Confidence Breakdown</h3>
+        <div class="chart-container"><canvas id="chart-confidence"></canvas></div>
       </div>
     </div>`;
+}
+
+function chartOptions(legend = false) {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 800 },
+    plugins: { legend: { display: legend, labels: { color: '#e8e8f0' } } },
+    scales: {
+      y: { beginAtZero: true, ticks: { color: '#e8e8f0' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+      x: { ticks: { color: '#e8e8f0' }, grid: { display: false } },
+    },
+  };
 }
 
 function createFoodChart(foodFreq) {
   const sorted = Object.entries(foodFreq).sort((a, b) => b[1] - a[1]).slice(0, 10);
   const ctx = document.getElementById('chart-foods');
-  if (!ctx) return;
+  if (!ctx || sorted.length === 0) return;
 
   charts.push(new Chart(ctx, {
     type: 'bar',
@@ -116,52 +146,13 @@ function createFoodChart(foodFreq) {
         borderRadius: 6,
       }],
     },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: 800 },
-      plugins: { legend: { display: false } },
-      scales: {
-        y: { beginAtZero: true, ticks: { color: '#e8e8f0' }, grid: { color: 'rgba(255,255,255,0.05)' } },
-        x: { ticks: { color: '#e8e8f0' }, grid: { display: false } },
-      },
-    },
+    options: chartOptions(),
   }));
 }
 
-function createSeatChart(seatFoods) {
-  const seats = Object.keys(seatFoods);
-  const allFoods = [...new Set(seats.flatMap((s) => Object.keys(seatFoods[s])))].slice(0, 8);
-  const ctx = document.getElementById('chart-seats');
-  if (!ctx || seats.length === 0) return;
-
-  charts.push(new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: allFoods,
-      datasets: seats.map((seat, i) => ({
-        label: seat,
-        data: allFoods.map((f) => seatFoods[seat][f] || 0),
-        backgroundColor: ACCENT_COLORS[i % ACCENT_COLORS.length],
-        borderRadius: 4,
-      })),
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: 800 },
-      plugins: { legend: { labels: { color: '#e8e8f0' } } },
-      scales: {
-        y: { beginAtZero: true, ticks: { color: '#e8e8f0' }, grid: { color: 'rgba(255,255,255,0.05)' } },
-        x: { ticks: { color: '#e8e8f0' }, grid: { display: false } },
-      },
-    },
-  }));
-}
-
-function createTimelineChart(timeline) {
-  const sorted = Object.entries(timeline).sort((a, b) => a[0].localeCompare(b[0]));
-  const ctx = document.getElementById('chart-timeline');
+function createCalorieChart(calorieTimeline) {
+  const sorted = Object.entries(calorieTimeline).sort((a, b) => a[0].localeCompare(b[0]));
+  const ctx = document.getElementById('chart-calories');
   if (!ctx || sorted.length === 0) return;
 
   charts.push(new Chart(ctx, {
@@ -169,12 +160,55 @@ function createTimelineChart(timeline) {
     data: {
       labels: sorted.map(([d]) => d),
       datasets: [{
-        label: 'Meals',
-        data: sorted.map(([, v]) => v),
+        label: 'Calories (kcal)',
+        data: sorted.map(([, v]) => Math.round(v)),
         borderColor: ACCENT_COLORS[2],
         backgroundColor: 'rgba(111, 247, 200, 0.1)',
         fill: true,
         tension: 0.3,
+      }],
+    },
+    options: chartOptions(true),
+  }));
+}
+
+function createMacroChart(macroAverages) {
+  const ctx = document.getElementById('chart-macros');
+  if (!ctx || !macroAverages) return;
+
+  charts.push(new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ['Protein', 'Carbs', 'Fat'],
+      datasets: [{
+        label: 'Grams (avg)',
+        data: [
+          macroAverages.protein,
+          macroAverages.carbs,
+          macroAverages.fat,
+        ],
+        backgroundColor: [ACCENT_COLORS[0], ACCENT_COLORS[1], ACCENT_COLORS[3]],
+        borderRadius: 6,
+      }],
+    },
+    options: chartOptions(),
+  }));
+}
+
+function createConfidenceChart(confidenceCounts) {
+  const ctx = document.getElementById('chart-confidence');
+  if (!ctx) return;
+
+  const total = Object.values(confidenceCounts).reduce((s, v) => s + v, 0);
+  if (total === 0) return;
+
+  charts.push(new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['High', 'Medium', 'Low'],
+      datasets: [{
+        data: [confidenceCounts.High, confidenceCounts.Medium, confidenceCounts.Low],
+        backgroundColor: ['#6ff7c8', '#ffd166', '#ff6b6b'],
       }],
     },
     options: {
@@ -182,40 +216,6 @@ function createTimelineChart(timeline) {
       maintainAspectRatio: false,
       animation: { duration: 800 },
       plugins: { legend: { labels: { color: '#e8e8f0' } } },
-      scales: {
-        y: { beginAtZero: true, ticks: { stepSize: 1, color: '#e8e8f0' }, grid: { color: 'rgba(255,255,255,0.05)' } },
-        x: { ticks: { color: '#e8e8f0' }, grid: { display: false } },
-      },
-    },
-  }));
-}
-
-function createIngredientChart(ingredientFreq) {
-  const sorted = Object.entries(ingredientFreq).sort((a, b) => b[1] - a[1]).slice(0, 10);
-  const ctx = document.getElementById('chart-ingredients');
-  if (!ctx) return;
-
-  charts.push(new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: sorted.map(([k]) => k),
-      datasets: [{
-        label: 'Count',
-        data: sorted.map(([, v]) => v),
-        backgroundColor: ACCENT_COLORS[1],
-        borderRadius: 6,
-      }],
-    },
-    options: {
-      indexAxis: 'y',
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: 800 },
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { beginAtZero: true, ticks: { color: '#e8e8f0' }, grid: { color: 'rgba(255,255,255,0.05)' } },
-        y: { ticks: { color: '#e8e8f0' }, grid: { display: false } },
-      },
     },
   }));
 }
@@ -253,14 +253,14 @@ function render() {
     <div class="analytics-actions">
       <button class="btn btn-primary" id="export-btn">Export Results JSON</button>
     </div>
-    ${renderCharts(agg)}`;
+    ${renderCharts()}`;
 
   document.getElementById('export-btn')?.addEventListener('click', exportResults);
 
   createFoodChart(agg.foodFreq);
-  createSeatChart(agg.seatFoods);
-  createTimelineChart(agg.timeline);
-  createIngredientChart(agg.ingredientFreq);
+  createCalorieChart(agg.calorieTimeline);
+  createMacroChart(agg.macroAverages);
+  createConfidenceChart(agg.confidenceCounts);
 }
 
 export async function init() {

@@ -1,4 +1,5 @@
 import { apiFetch, formatBytes, formatDate, showToast } from './utils.js';
+import { renderMealSummary } from './mealResults.js';
 
 let allFiles = [];
 let filteredFiles = [];
@@ -102,20 +103,7 @@ function renderResultsPanel(file) {
   }
 
   let html = `<p><strong>Processed:</strong> ${formatDate(result.processedAt)}</p>`;
-
-  if (result.zones) {
-    html += result.zones.map((zone) => `
-      <div style="margin-top: 0.75rem;">
-        <strong>${zone.name}</strong>
-        <ul style="margin-top: 0.25rem; padding-left: 1.25rem; font-size: 0.875rem;">
-          ${(zone.foods || []).map((f) => `
-            <li>${f.item} (${f.portion}) — ${(f.ingredients || []).join(', ')}</li>
-          `).join('')}
-        </ul>
-      </div>
-    `).join('');
-  }
-
+  html += renderMealSummary(result, { compact: true });
   return html;
 }
 
