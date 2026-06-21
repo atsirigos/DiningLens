@@ -368,6 +368,7 @@
         <option value="low">Low</option>
       </select>
       <select id="sort-by" aria-label="Sort by">
+        <option value="ranked" selected>Sort: Priority &amp; due date</option>
         <option value="dueDate">Sort: Due date</option>
         <option value="priority">Sort: Priority</option>
         <option value="createdAt">Sort: Created</option>
@@ -478,6 +479,7 @@
     };
 
     function saveTasks() {
+      reorderTasks();
       const payload = {
         version: 1,
         project: 'SmartDining',
@@ -545,6 +547,36 @@
       els.deleteBtn.classList.remove('hidden');
     }
 
+    function compareDueDate(a, b) {
+      if (!a.dueDate && !b.dueDate) return 0;
+      if (!a.dueDate) return 1;
+      if (!b.dueDate) return -1;
+      return a.dueDate.localeCompare(b.dueDate);
+    }
+
+    function compareByRank(a, b) {
+      const byPriority = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
+      if (byPriority !== 0) return byPriority;
+      return compareDueDate(a, b);
+    }
+
+    function compareTasks(a, b, sortBy) {
+      if (sortBy === 'ranked') return compareByRank(a, b);
+      if (sortBy === 'priority') {
+        const byPriority = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
+        return byPriority !== 0 ? byPriority : compareDueDate(a, b);
+      }
+      if (sortBy === 'title') return a.title.localeCompare(b.title);
+      if (sortBy === 'createdAt') return new Date(b.createdAt) - new Date(a.createdAt);
+      const byDue = compareDueDate(a, b);
+      if (byDue !== 0) return byDue;
+      return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
+    }
+
+    function reorderTasks(sortBy = els.sortBy.value) {
+      tasks.sort((a, b) => compareTasks(a, b, sortBy));
+    }
+
     function getFilteredTasks() {
       const q = els.search.value.trim().toLowerCase();
       const statusFilter = els.filterStatus.value;
@@ -561,15 +593,7 @@
         return true;
       });
 
-      list.sort((a, b) => {
-        if (sortBy === 'priority') return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
-        if (sortBy === 'title') return a.title.localeCompare(b.title);
-        if (sortBy === 'createdAt') return new Date(b.createdAt) - new Date(a.createdAt);
-        if (!a.dueDate && !b.dueDate) return 0;
-        if (!a.dueDate) return 1;
-        if (!b.dueDate) return -1;
-        return a.dueDate.localeCompare(b.dueDate);
-      });
+      list.sort((a, b) => compareTasks(a, b, sortBy));
 
       return list;
     }
@@ -693,7 +717,7 @@
           showToast('Task updated');
         }
       } else {
-        tasks.unshift({
+        tasks.push({
           id: uid(),
           ...data,
           createdAt: now,
@@ -725,9 +749,14 @@
       showToast('Task deleted');
     });
 
-    [els.search, els.filterStatus, els.filterPriority, els.sortBy].forEach((el) => {
+    [els.search, els.filterStatus, els.filterPriority].forEach((el) => {
       el.addEventListener('input', renderTasks);
       el.addEventListener('change', renderTasks);
+    });
+
+    els.sortBy.addEventListener('change', () => {
+      reorderTasks();
+      renderTasks();
     });
 
     els.exportBtn.addEventListener('click', () => {
@@ -804,6 +833,7 @@
       saveTasks();
     }
 
+    reorderTasks();
     render();
   </script>
 </body>
