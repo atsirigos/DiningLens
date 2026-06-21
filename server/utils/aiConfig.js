@@ -8,12 +8,24 @@ const AI_PROVIDERS = {
       { id: 'gemini-3-flash-preview', label: 'Gemini 3.0 Flash' },
     ],
   },
+  anthropic: {
+    label: 'Anthropic',
+    models: [
+      { id: 'claude-haiku-4-5', label: 'Haiku' },
+      { id: 'claude-sonnet-4-6', label: 'Sonnet' },
+    ],
+  },
 };
 
 const DEFAULT_AI = {
   provider: 'google',
   model: 'gemini-2.5-flash',
   apiKey: '',
+};
+
+const ENV_KEYS = {
+  google: 'GEMINI_API_KEY',
+  anthropic: 'ANTHROPIC_API_KEY',
 };
 
 function getProviderModels(provider) {
@@ -24,7 +36,9 @@ function resolveApiKey(settings) {
   const key = settings?.ai?.apiKey?.trim();
   if (key && key !== 'your_key_here') return key;
 
-  const envKey = process.env.GEMINI_API_KEY?.trim();
+  const provider = settings?.ai?.provider || DEFAULT_AI.provider;
+  const envVar = ENV_KEYS[provider] || ENV_KEYS.google;
+  const envKey = process.env[envVar]?.trim();
   if (envKey && envKey !== 'your_key_here') return envKey;
 
   return null;
@@ -40,6 +54,7 @@ function resolveModel(settings) {
 module.exports = {
   AI_PROVIDERS,
   DEFAULT_AI,
+  ENV_KEYS,
   getProviderModels,
   resolveApiKey,
   resolveModel,

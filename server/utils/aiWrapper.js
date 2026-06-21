@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Anthropic = require('@anthropic-ai/sdk');
 const { resolveApiKey, resolveModel } = require('./aiConfig');
 
 const MIME_TYPES = {
@@ -52,31 +53,20 @@ function parseJsonResponse(text) {
   return JSON.parse(cleaned);
 }
 
-async function analyzeImage(filePath, settings) {
-  const provider = settings?.ai?.provider || 'google';
-  if (provider !== 'google') {
-    throw new Error(`Provider "${provider}" is not supported yet`);
-  }
-
-  const apiKey = resolveApiKey(settings);
-  if (!apiKey) {
-    throw new Error('API key is not configured. Add one in Settings.');
-  }
-
+function readImage(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   const mimeType = MIME_TYPES[ext];
   if (!mimeType) {
     throw new Error(`Unsupported image type: ${ext}`);
   }
 
-  const imageBuffer = fs.readFileSync(filePath);
-  const base64 = imageBuffer.toString('base64');
-  const modelId = resolveModel(settings);
+  const base64 = fs.readFileSync(filePath).toString('base64');
+  return { mimeType, base64 };
+}
 
+async function analyzeWithGoogle(apiKey, modelId, mimeType, base64, prompt) {
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ model: modelId });
-
-  const prompt = buildPrompt(settings);
 
   const result = await model.generateContent([
     prompt,
@@ -88,10 +78,69 @@ async function analyzeImage(filePath, settings) {
     },
   ]);
 
-  const text = result.response.text();
-  const parsed = parseJsonResponse(text);
+  return result.response.text();
+}
 
-  return parsed;
+async function analyzeWithAnthropic(apiKey, modelId, mimeType, base64, prompt) {
+  const client = new Anthropic({ apiKey });
+
+  const message = await client.messages.create({
+    model: modelId,
+    max_tokens: 4096,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: mimeType,
+              data: base64,
+            },
+          },
+          {
+            type: 'text',
+            text: prompt,
+          },
+        ],
+      },
+    ],
+  });
+
+  const textBlock = message.content.find((block) => block.type === 'text');
+  if (!textBlock?.text) {
+    throw new Error('No text response from Anthropic');
+  }
+
+  return textBlock.text;
+}
+
+async function analyzeImage(filePath, settings) {
+  const provider = settings?.ai?.provider || 'google';
+
+  const apiKey = resolveApiKey(settings);
+  if (!apiKey) {
+    throw new Error('API key is not configured. Add one in Settings.');
+  }
+
+  const { mimeType, base64 } = readImage(filePath);
+  const modelId = resolveModel(settings);
+  const prompt = buildPrompt(settings);
+
+  let text;
+  switch (provider) {
+    case 'google':
+      text = await analyzeWithGoogle(apiKey, modelId, mimeType, base64, prompt);
+      break;
+    case 'anthropic':
+      text = await analyzeWithAnthropic(apiKey, modelId, mimeType, base64, prompt);
+      break;
+    default:
+      throw new Error(`Provider "${provider}" is not supported`);
+  }
+
+  return parseJsonResponse(text);
 }
 
 module.exports = { analyzeImage };

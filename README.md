@@ -13,12 +13,12 @@ A local-only web app that reads meal photos from a `data/` folder, runs AI analy
    ```bash
    cp .env.example .env
    ```
-   Edit `.env` and set your `GEMINI_API_KEY`.
+   Edit `.env` and set your API key for the provider you use (`GEMINI_API_KEY` or `ANTHROPIC_API_KEY`), or configure it in the Settings UI.
 
 3. **Add meal photos**
    Drop images (`.jpg`, `.png`, `.webp`) or videos (`.mp4`, `.mov`) into the `data/` folder.
 
-4. **Start the server**
+4. **Start the dev server** (auto-restarts on file changes)
    ```bash
    npm run dev
    ```
@@ -58,4 +58,4 @@ SmartDining/
 ## Requirements
 
 - Node.js 18+
-- A [Google Gemini API key](https://aistudio.google.com/apikey)
+- A [Google Gemini](https://aistudio.google.com/apikey) or [Anthropic](https://console.anthropic.com/) API key
