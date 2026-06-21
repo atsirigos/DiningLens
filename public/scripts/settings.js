@@ -213,18 +213,18 @@ function redrawCanvas() {
     const w = zone.width * canvas.width;
     const h = zone.height * canvas.height;
 
-    ctx.strokeStyle = '#7c6ff7';
+    ctx.strokeStyle = '#6b5ce7';
     ctx.lineWidth = 2;
     ctx.strokeRect(x, y, w, h);
-    ctx.fillStyle = 'rgba(124, 111, 247, 0.15)';
+    ctx.fillStyle = 'rgba(107, 92, 231, 0.12)';
     ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = '#e8e8f0';
+    ctx.fillStyle = '#1e293b';
     ctx.font = '12px system-ui';
     ctx.fillText(zone.name, x + 4, y + 14);
   });
 
   if (currentRect) {
-    ctx.strokeStyle = '#f76f9b';
+    ctx.strokeStyle = '#e85d8a';
     ctx.lineWidth = 2;
     ctx.setLineDash([4, 4]);
     ctx.strokeRect(currentRect.x, currentRect.y, currentRect.w, currentRect.h);

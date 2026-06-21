@@ -32,6 +32,10 @@ A local-only web app that reads meal photos from a `data/` folder, runs AI analy
 
 6. Open [http://localhost:3000](http://localhost:3000)
 
+## Project board
+
+Open [`project-board.html`](project-board.html) in your browser for standalone task tracking (priorities, due dates, status). Tasks persist in **browser localStorage** — separate from the app's SQLite database.
+
 ## Usage
 
 1. **Settings** — Draw zones on a reference photo, configure seat layout and common foods.

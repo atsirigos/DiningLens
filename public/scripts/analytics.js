@@ -4,7 +4,9 @@ import { normalizeResultForAnalytics } from './mealResults.js';
 let results = {};
 let charts = [];
 
-const ACCENT_COLORS = ['#7c6ff7', '#f76f9b', '#6ff7c8', '#ffd166', '#ff6b6b', '#4ecdc4'];
+const ACCENT_COLORS = ['#6b5ce7', '#e85d8a', '#0d9488', '#d97706', '#dc2626', '#0891b2'];
+const CHART_TEXT = '#475569';
+const CHART_GRID = 'rgba(0, 0, 0, 0.06)';
 
 const container = () => document.getElementById('analytics-content');
 
@@ -122,10 +124,10 @@ function chartOptions(legend = false) {
     responsive: true,
     maintainAspectRatio: false,
     animation: { duration: 800 },
-    plugins: { legend: { display: legend, labels: { color: '#e8e8f0' } } },
+    plugins: { legend: { display: legend, labels: { color: CHART_TEXT } } },
     scales: {
-      y: { beginAtZero: true, ticks: { color: '#e8e8f0' }, grid: { color: 'rgba(255,255,255,0.05)' } },
-      x: { ticks: { color: '#e8e8f0' }, grid: { display: false } },
+      y: { beginAtZero: true, ticks: { color: CHART_TEXT }, grid: { color: CHART_GRID } },
+      x: { ticks: { color: CHART_TEXT }, grid: { display: false } },
     },
   };
 }
@@ -163,7 +165,7 @@ function createCalorieChart(calorieTimeline) {
         label: 'Calories (kcal)',
         data: sorted.map(([, v]) => Math.round(v)),
         borderColor: ACCENT_COLORS[2],
-        backgroundColor: 'rgba(111, 247, 200, 0.1)',
+        backgroundColor: 'rgba(13, 148, 136, 0.12)',
         fill: true,
         tension: 0.3,
       }],
@@ -208,14 +210,14 @@ function createConfidenceChart(confidenceCounts) {
       labels: ['High', 'Medium', 'Low'],
       datasets: [{
         data: [confidenceCounts.High, confidenceCounts.Medium, confidenceCounts.Low],
-        backgroundColor: ['#6ff7c8', '#ffd166', '#ff6b6b'],
+        backgroundColor: ['#059669', '#d97706', '#dc2626'],
       }],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       animation: { duration: 800 },
-      plugins: { legend: { labels: { color: '#e8e8f0' } } },
+      plugins: { legend: { labels: { color: CHART_TEXT } } },
     },
   }));
 }

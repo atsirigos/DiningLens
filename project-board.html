@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmartDining — Project Board</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      color-scheme: light;
+      --bg: #f4f6fa;
+      --surface: rgba(255, 255, 255, 0.92);
+      --surface-hover: rgba(0, 0, 0, 0.04);
+      --border: rgba(0, 0, 0, 0.08);
+      --text: #1e293b;
+      --muted: #64748b;
+      --accent: #6b5ce7;
+      --accent-2: #e85d8a;
+      --success: #059669;
+      --warning: #d97706;
+      --danger: #dc2626;
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
+      --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+      --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.1);
+      --radius: 14px;
+      --radius-sm: 8px;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      background-image:
+        radial-gradient(ellipse at 20% 20%, rgba(124, 111, 247, 0.08) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 80%, rgba(247, 111, 155, 0.06) 0%, transparent 50%);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    .app {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 2rem 1.25rem 4rem;
+    }
+
+    header {
+      margin-bottom: 2rem;
+    }
+
+    header h1 {
+      font-size: clamp(1.5rem, 4vw, 2rem);
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    header p {
+      color: var(--muted);
+      margin-top: 0.35rem;
+      font-size: 0.9rem;
+    }
+
+    .glass {
+      background: var(--surface);
+      backdrop-filter: blur(18px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-md);
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .toolbar select,
+    .toolbar input[type="search"] {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      padding: 0.45rem 0.75rem;
+      font-size: 0.875rem;
+    }
+
+    .toolbar input[type="search"] {
+      flex: 1;
+      min-width: 160px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .stat {
+      padding: 1rem;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .stat-label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-top: 0.2rem;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 1.5rem;
+      align-items: start;
+    }
+
+    @media (max-width: 800px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      padding: 1.25rem;
+    }
+
+    .panel h2 {
+      font-size: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .form-group {
+      margin-bottom: 0.85rem;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 0.3rem;
+    }
+
+    .form-group input,
+    .form-group textarea,
+    .form-group select {
+      width: 100%;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      padding: 0.5rem 0.75rem;
+      font-family: inherit;
+      font-size: 0.875rem;
+    }
+
+    .form-group textarea {
+      resize: vertical;
+      min-height: 72px;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.35rem;
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-family: inherit;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: filter 0.2s, transform 0.2s;
+    }
+
+    .btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: white;
+      width: 100%;
+      margin-top: 0.25rem;
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-danger {
+      background: rgba(220, 38, 38, 0.1);
+      color: var(--danger);
+      border: 1px solid rgba(220, 38, 38, 0.25);
+    }
+
+    .btn-sm { padding: 0.3rem 0.65rem; font-size: 0.8rem; }
+
+    .form-actions {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+
+    .form-actions .btn-primary { flex: 1; width: auto; margin-top: 0; }
+
+    .task-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .task-card {
+      padding: 1rem 1.15rem;
+      transition: transform 0.2s, box-shadow 0.2s;
+      cursor: pointer;
+    }
+
+    .task-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .task-card.selected {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+
+    .task-card.overdue {
+      border-left: 3px solid var(--danger);
+    }
+
+    .task-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 0.4rem;
+    }
+
+    .task-title {
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+
+    .task-title.done {
+      text-decoration: line-through;
+      color: var(--muted);
+    }
+
+    .task-desc {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 0.65rem;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .task-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      align-items: center;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 500;
+    }
+
+    .priority-high { background: rgba(220, 38, 38, 0.1); color: var(--danger); }
+    .priority-medium { background: rgba(217, 119, 6, 0.12); color: var(--warning); }
+    .priority-low { background: rgba(5, 150, 105, 0.12); color: var(--success); }
+
+    .status-todo { background: rgba(0, 0, 0, 0.05); color: var(--muted); }
+    .status-in_progress { background: rgba(107, 92, 231, 0.12); color: var(--accent); }
+    .status-done { background: rgba(5, 150, 105, 0.12); color: var(--success); }
+
+    .task-actions {
+      display: flex;
+      gap: 0.35rem;
+      flex-shrink: 0;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1.5rem;
+      color: var(--muted);
+    }
+
+    .empty-state-icon { font-size: 2.5rem; margin-bottom: 0.75rem; opacity: 0.5; }
+
+    .storage-note {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-top: 1.5rem;
+      text-align: center;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      padding: 0.75rem 1.25rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      box-shadow: var(--shadow-md);
+      animation: fadeIn 0.3s ease;
+      z-index: 100;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    input:focus, textarea:focus, select:focus, button:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>SmartDining Project Board</h1>
+      <p>Task tracking for this project — saved locally in your browser (not the app database).</p>
+    </header>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="toolbar glass">
+      <input type="search" id="search" placeholder="Search tasks..." aria-label="Search tasks">
+      <select id="filter-status" aria-label="Filter by status">
+        <option value="all">All statuses</option>
+        <option value="todo">To do</option>
+        <option value="in_progress">In progress</option>
+        <option value="done">Done</option>
+      </select>
+      <select id="filter-priority" aria-label="Filter by priority">
+        <option value="all">All priorities</option>
+        <option value="high">High</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+      </select>
+      <select id="sort-by" aria-label="Sort by">
+        <option value="dueDate">Sort: Due date</option>
+        <option value="priority">Sort: Priority</option>
+        <option value="createdAt">Sort: Created</option>
+        <option value="title">Sort: Title</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" id="export-btn" type="button">Export JSON</button>
+      <button class="btn btn-ghost btn-sm" id="import-btn" type="button">Import JSON</button>
+      <input type="file" id="import-file" accept=".json,application/json" hidden>
+    </div>
+
+    <div class="layout">
+      <aside class="panel glass">
+        <h2 id="form-title">New task</h2>
+        <form id="task-form">
+          <input type="hidden" id="task-id">
+          <div class="form-group">
+            <label for="title">Title</label>
+            <input type="text" id="title" required placeholder="e.g. Add zone editor tests">
+          </div>
+          <div class="form-group">
+            <label for="description">Description</label>
+            <textarea id="description" placeholder="Details, acceptance criteria..."></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="priority">Priority</label>
+              <select id="priority">
+                <option value="high">High</option>
+                <option value="medium" selected>Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="status">Status</label>
+              <select id="status">
+                <option value="todo">To do</option>
+                <option value="in_progress">In progress</option>
+                <option value="done">Done</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="dueDate">Due date</label>
+            <input type="date" id="dueDate">
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" id="submit-btn">Add task</button>
+            <button type="button" class="btn btn-ghost btn-sm hidden" id="cancel-btn">Cancel</button>
+          </div>
+          <button type="button" class="btn btn-danger btn-sm hidden" id="delete-btn" style="width:100%; margin-top:0.5rem;">Delete task</button>
+        </form>
+      </aside>
+
+      <main>
+        <div class="task-list" id="task-list"></div>
+        <p class="storage-note" id="storage-note"></p>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'smartdining-project-board-v1';
+
+    const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
+    const STATUS_LABELS = { todo: 'To do', in_progress: 'In progress', done: 'Done' };
+
+    function loadBoard() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return { initialized: false, tasks: [] };
+        const data = JSON.parse(raw);
+        return {
+          initialized: true,
+          tasks: Array.isArray(data.tasks) ? data.tasks : [],
+        };
+      } catch {
+        return { initialized: true, tasks: [] };
+      }
+    }
+
+    const board = loadBoard();
+    let tasks = board.tasks;
+    let editingId = null;
+    let selectedId = null;
+
+    const els = {
+      form: document.getElementById('task-form'),
+      formTitle: document.getElementById('form-title'),
+      taskId: document.getElementById('task-id'),
+      title: document.getElementById('title'),
+      description: document.getElementById('description'),
+      priority: document.getElementById('priority'),
+      status: document.getElementById('status'),
+      dueDate: document.getElementById('dueDate'),
+      submitBtn: document.getElementById('submit-btn'),
+      cancelBtn: document.getElementById('cancel-btn'),
+      deleteBtn: document.getElementById('delete-btn'),
+      taskList: document.getElementById('task-list'),
+      stats: document.getElementById('stats'),
+      search: document.getElementById('search'),
+      filterStatus: document.getElementById('filter-status'),
+      filterPriority: document.getElementById('filter-priority'),
+      sortBy: document.getElementById('sort-by'),
+      exportBtn: document.getElementById('export-btn'),
+      importBtn: document.getElementById('import-btn'),
+      importFile: document.getElementById('import-file'),
+      storageNote: document.getElementById('storage-note'),
+    };
+
+    function saveTasks() {
+      const payload = {
+        version: 1,
+        project: 'SmartDining',
+        updatedAt: new Date().toISOString(),
+        tasks,
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload, null, 2));
+      updateStorageNote();
+    }
+
+    function updateStorageNote() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const kb = raw ? (raw.length / 1024).toFixed(1) : '0';
+      els.storageNote.textContent = `${tasks.length} task(s) · ~${kb} KB in localStorage (${STORAGE_KEY})`;
+    }
+
+    function uid() {
+      return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    }
+
+    function isOverdue(task) {
+      if (!task.dueDate || task.status === 'done') return false;
+      const today = new Date().toISOString().split('T')[0];
+      return task.dueDate < today;
+    }
+
+    function formatDate(dateStr) {
+      if (!dateStr) return 'No due date';
+      return new Date(dateStr + 'T12:00:00').toLocaleDateString(undefined, {
+        month: 'short', day: 'numeric', year: 'numeric',
+      });
+    }
+
+    function showToast(msg) {
+      const t = document.createElement('div');
+      t.className = 'toast';
+      t.textContent = msg;
+      document.body.appendChild(t);
+      setTimeout(() => t.remove(), 2800);
+    }
+
+    function resetForm() {
+      editingId = null;
+      els.formTitle.textContent = 'New task';
+      els.submitBtn.textContent = 'Add task';
+      els.form.reset();
+      els.taskId.value = '';
+      els.priority.value = 'medium';
+      els.status.value = 'todo';
+      els.cancelBtn.classList.add('hidden');
+      els.deleteBtn.classList.add('hidden');
+    }
+
+    function fillForm(task) {
+      editingId = task.id;
+      els.formTitle.textContent = 'Edit task';
+      els.submitBtn.textContent = 'Save changes';
+      els.taskId.value = task.id;
+      els.title.value = task.title;
+      els.description.value = task.description || '';
+      els.priority.value = task.priority;
+      els.status.value = task.status;
+      els.dueDate.value = task.dueDate || '';
+      els.cancelBtn.classList.remove('hidden');
+      els.deleteBtn.classList.remove('hidden');
+    }
+
+    function getFilteredTasks() {
+      const q = els.search.value.trim().toLowerCase();
+      const statusFilter = els.filterStatus.value;
+      const priorityFilter = els.filterPriority.value;
+      const sortBy = els.sortBy.value;
+
+      let list = tasks.filter((t) => {
+        if (statusFilter !== 'all' && t.status !== statusFilter) return false;
+        if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false;
+        if (q) {
+          const hay = `${t.title} ${t.description || ''}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+
+      list.sort((a, b) => {
+        if (sortBy === 'priority') return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
+        if (sortBy === 'title') return a.title.localeCompare(b.title);
+        if (sortBy === 'createdAt') return new Date(b.createdAt) - new Date(a.createdAt);
+        if (!a.dueDate && !b.dueDate) return 0;
+        if (!a.dueDate) return 1;
+        if (!b.dueDate) return -1;
+        return a.dueDate.localeCompare(b.dueDate);
+      });
+
+      return list;
+    }
+
+    function renderStats() {
+      const total = tasks.length;
+      const todo = tasks.filter((t) => t.status === 'todo').length;
+      const inProgress = tasks.filter((t) => t.status === 'in_progress').length;
+      const done = tasks.filter((t) => t.status === 'done').length;
+      const overdue = tasks.filter(isOverdue).length;
+
+      els.stats.innerHTML = `
+        <div class="stat glass"><div class="stat-value">${total}</div><div class="stat-label">Total</div></div>
+        <div class="stat glass"><div class="stat-value">${todo}</div><div class="stat-label">To do</div></div>
+        <div class="stat glass"><div class="stat-value">${inProgress}</div><div class="stat-label">In progress</div></div>
+        <div class="stat glass"><div class="stat-value">${done}</div><div class="stat-label">Done</div></div>
+        <div class="stat glass"><div class="stat-value" style="color:var(--danger)">${overdue}</div><div class="stat-label">Overdue</div></div>`;
+    }
+
+    function renderTasks() {
+      const list = getFilteredTasks();
+
+      if (list.length === 0) {
+        els.taskList.innerHTML = `
+          <div class="empty-state glass">
+            <div class="empty-state-icon">📋</div>
+            <h3>No tasks yet</h3>
+            <p>Add a task using the form, or import a JSON backup.</p>
+          </div>`;
+        return;
+      }
+
+      els.taskList.innerHTML = list.map((task) => `
+        <article class="task-card glass ${selectedId === task.id ? 'selected' : ''} ${isOverdue(task) ? 'overdue' : ''}"
+          data-id="${task.id}" tabindex="0" role="button" aria-label="Edit ${escapeHtml(task.title)}">
+          <div class="task-header">
+            <div class="task-title ${task.status === 'done' ? 'done' : ''}">${escapeHtml(task.title)}</div>
+            <div class="task-actions">
+              <button type="button" class="btn btn-ghost btn-sm cycle-status" data-id="${task.id}" title="Cycle status">↻</button>
+            </div>
+          </div>
+          ${task.description ? `<p class="task-desc">${escapeHtml(task.description)}</p>` : ''}
+          <div class="task-meta">
+            <span class="badge priority-${task.priority}">${task.priority}</span>
+            <span class="badge status-${task.status}">${STATUS_LABELS[task.status]}</span>
+            <span>📅 ${formatDate(task.dueDate)}</span>
+            ${isOverdue(task) ? '<span style="color:var(--danger)">Overdue</span>' : ''}
+          </div>
+        </article>
+      `).join('');
+
+      els.taskList.querySelectorAll('.task-card').forEach((card) => {
+        card.addEventListener('click', (e) => {
+          if (e.target.closest('.cycle-status')) return;
+          const task = tasks.find((t) => t.id === card.dataset.id);
+          if (task) {
+            selectedId = task.id;
+            fillForm(task);
+            renderTasks();
+          }
+        });
+        card.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            card.click();
+          }
+        });
+      });
+
+      els.taskList.querySelectorAll('.cycle-status').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          cycleStatus(btn.dataset.id);
+        });
+      });
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function cycleStatus(id) {
+      const task = tasks.find((t) => t.id === id);
+      if (!task) return;
+      const order = ['todo', 'in_progress', 'done'];
+      const next = order[(order.indexOf(task.status) + 1) % order.length];
+      task.status = next;
+      task.updatedAt = new Date().toISOString();
+      saveTasks();
+      render();
+      showToast(`Status → ${STATUS_LABELS[next]}`);
+    }
+
+    function render() {
+      renderStats();
+      renderTasks();
+      updateStorageNote();
+    }
+
+    els.form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const now = new Date().toISOString();
+      const data = {
+        title: els.title.value.trim(),
+        description: els.description.value.trim(),
+        priority: els.priority.value,
+        status: els.status.value,
+        dueDate: els.dueDate.value || null,
+      };
+
+      if (!data.title) return;
+
+      if (editingId) {
+        const idx = tasks.findIndex((t) => t.id === editingId);
+        if (idx !== -1) {
+          tasks[idx] = { ...tasks[idx], ...data, updatedAt: now };
+          showToast('Task updated');
+        }
+      } else {
+        tasks.unshift({
+          id: uid(),
+          ...data,
+          createdAt: now,
+          updatedAt: now,
+        });
+        showToast('Task added');
+      }
+
+      saveTasks();
+      resetForm();
+      selectedId = null;
+      render();
+    });
+
+    els.cancelBtn.addEventListener('click', () => {
+      resetForm();
+      selectedId = null;
+      renderTasks();
+    });
+
+    els.deleteBtn.addEventListener('click', () => {
+      if (!editingId) return;
+      if (!confirm('Delete this task?')) return;
+      tasks = tasks.filter((t) => t.id !== editingId);
+      saveTasks();
+      resetForm();
+      selectedId = null;
+      render();
+      showToast('Task deleted');
+    });
+
+    [els.search, els.filterStatus, els.filterPriority, els.sortBy].forEach((el) => {
+      el.addEventListener('input', renderTasks);
+      el.addEventListener('change', renderTasks);
+    });
+
+    els.exportBtn.addEventListener('click', () => {
+      const payload = {
+        version: 1,
+        project: 'SmartDining',
+        exportedAt: new Date().toISOString(),
+        tasks,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `smartdining-tasks-${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Exported JSON');
+    });
+
+    els.importBtn.addEventListener('click', () => els.importFile.click());
+
+    els.importFile.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        const imported = Array.isArray(data.tasks) ? data.tasks : Array.isArray(data) ? data : null;
+        if (!imported) throw new Error('Invalid format');
+        if (!confirm(`Import ${imported.length} task(s)? This will replace current tasks.`)) return;
+        tasks = imported.map((t) => ({
+          id: t.id || uid(),
+          title: t.title || 'Untitled',
+          description: t.description || '',
+          priority: ['high', 'medium', 'low'].includes(t.priority) ? t.priority : 'medium',
+          status: ['todo', 'in_progress', 'done'].includes(t.status) ? t.status : 'todo',
+          dueDate: t.dueDate || null,
+          createdAt: t.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }));
+        saveTasks();
+        resetForm();
+        render();
+        showToast('Import complete');
+      } catch (err) {
+        alert('Import failed: invalid JSON file.');
+      }
+      els.importFile.value = '';
+    });
+
+    if (!board.initialized) {
+      tasks = [
+        {
+          id: uid(),
+          title: 'Process sample meal photos',
+          description: 'Run npm run diagnose on all 3 images in data/',
+          priority: 'high',
+          status: 'todo',
+          dueDate: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: uid(),
+          title: 'Draw zones on reference photo',
+          description: 'Configure seat layout in Settings for future zone-based analysis.',
+          priority: 'medium',
+          status: 'todo',
+          dueDate: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ];
+      saveTasks();
+    }
+
+    render();
+  </script>
+</body>
+</html>

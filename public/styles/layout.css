@@ -64,7 +64,7 @@
 }
 
 .nav-item.active {
-  background: rgba(124, 111, 247, 0.2);
+  background: rgba(107, 92, 231, 0.12);
   color: var(--color-accent);
 }
 
@@ -139,7 +139,7 @@
   aspect-ratio: 4/3;
   object-fit: cover;
   display: block;
-  background: rgba(0, 0, 0, 0.3);
+  background: #e2e8f0;
 }
 
 .gallery-card-body {
@@ -166,7 +166,7 @@
 .lightbox {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.85);
+  background: rgba(0, 0, 0, 0.75);
   backdrop-filter: blur(8px);
   z-index: 1000;
   display: flex;
@@ -261,7 +261,7 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(0, 0, 0, 0.03);
   border-radius: var(--radius-sm);
 }
 
@@ -365,17 +365,17 @@
 }
 
 .badge.confidence-high {
-  background: rgba(111, 247, 200, 0.15);
+  background: rgba(5, 150, 105, 0.12);
   color: var(--color-success);
 }
 
 .badge.confidence-medium {
-  background: rgba(255, 209, 102, 0.15);
+  background: rgba(217, 119, 6, 0.12);
   color: var(--color-warning);
 }
 
 .badge.confidence-low {
-  background: rgba(255, 107, 107, 0.15);
+  background: rgba(220, 38, 38, 0.1);
   color: var(--color-danger);
 }
 
@@ -389,7 +389,7 @@
 .meal-total-card {
   text-align: center;
   padding: 0.75rem;
-  background: rgba(255, 255, 255, 0.04);
+  background: #f8fafc;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
 }

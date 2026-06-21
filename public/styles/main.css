@@ -7,18 +7,24 @@
 }
 
 :root {
-  --color-bg: #0f0f1a;
-  --color-surface: rgba(255, 255, 255, 0.07);
-  --color-surface-hover: rgba(255, 255, 255, 0.12);
-  --color-accent: #7c6ff7;
-  --color-accent-2: #f76f9b;
-  --color-accent-3: #6ff7c8;
-  --color-text: #e8e8f0;
-  --color-text-muted: rgba(232, 232, 240, 0.6);
-  --color-border: rgba(255, 255, 255, 0.12);
-  --color-danger: #ff6b6b;
-  --color-success: #6ff7c8;
-  --color-warning: #ffd166;
+  color-scheme: light;
+  --color-bg: #f4f6fa;
+  --color-surface: rgba(255, 255, 255, 0.92);
+  --color-surface-hover: rgba(0, 0, 0, 0.04);
+  --color-accent: #6b5ce7;
+  --color-accent-2: #e85d8a;
+  --color-accent-3: #0d9488;
+  --color-text: #1e293b;
+  --color-text-muted: #64748b;
+  --color-border: rgba(0, 0, 0, 0.08);
+  --color-danger: #dc2626;
+  --color-success: #059669;
+  --color-warning: #d97706;
+  --color-chart-text: #475569;
+  --color-chart-grid: rgba(0, 0, 0, 0.06);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.1);
   --radius: 16px;
   --radius-sm: 8px;
   --blur: blur(18px);
@@ -34,8 +40,8 @@ body {
   font-family: var(--font);
   background: var(--color-bg);
   background-image:
-    radial-gradient(ellipse at 20% 20%, rgba(124, 111, 247, 0.15) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 80%, rgba(247, 111, 155, 0.1) 0%, transparent 50%);
+    radial-gradient(ellipse at 20% 20%, rgba(124, 111, 247, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 80%, rgba(247, 111, 155, 0.06) 0%, transparent 50%);
   color: var(--color-text);
   min-height: 100vh;
   line-height: 1.5;
@@ -68,7 +74,7 @@ input, select, textarea, button {
 }
 
 input, select, textarea {
-  background: rgba(255, 255, 255, 0.05);
+  background: #ffffff;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   color: var(--color-text);
@@ -127,7 +133,7 @@ input::placeholder {
 }
 
 .skeleton {
-  background: linear-gradient(90deg, var(--color-surface) 25%, rgba(255,255,255,0.1) 50%, var(--color-surface) 75%);
+  background: linear-gradient(90deg, #e8ecf2 25%, #f8fafc 50%, #e8ecf2 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
   border-radius: var(--radius-sm);
@@ -163,7 +169,7 @@ input::placeholder {
 
 .progress-bar {
   height: 6px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.06);
   border-radius: 3px;
   overflow: hidden;
   margin-top: 0.5rem;
@@ -192,7 +198,7 @@ input::placeholder {
   background: var(--color-surface);
   backdrop-filter: var(--blur);
   border: 1px solid var(--color-border);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-md);
   animation: toastIn 0.3s ease;
   max-width: 320px;
 }
