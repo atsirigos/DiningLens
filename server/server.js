@@ -1,0 +1,53 @@
+const path = require('path');
+const fs = require('fs');
+const express = require('express');
+const cors = require('cors');
+require('dotenv').config();
+
+const filesRouter = require('./routes/files');
+const settingsRouter = require('./routes/settings');
+const processRouter = require('./routes/process');
+
+const ROOT = path.join(__dirname, '..');
+const DATA_DIR = path.join(ROOT, 'data');
+const PROCESSED_DIR = path.join(ROOT, 'processed');
+const SETTINGS_FILE = path.join(ROOT, 'settings.json');
+const RESULTS_FILE = path.join(PROCESSED_DIR, 'results.json');
+
+function ensureStartup() {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+  if (!fs.existsSync(PROCESSED_DIR)) {
+    fs.mkdirSync(PROCESSED_DIR, { recursive: true });
+  }
+  if (!fs.existsSync(RESULTS_FILE)) {
+    fs.writeFileSync(RESULTS_FILE, '{}', 'utf8');
+  }
+  if (!fs.existsSync(SETTINGS_FILE)) {
+    const defaults = {
+      zones: [],
+      commonFoods: ['Salad', 'Bread', 'Pasta', 'Vegetables', 'Water'],
+      seatLayout: 2,
+      referenceImage: null,
+    };
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(defaults, null, 2), 'utf8');
+  }
+}
+
+ensureStartup();
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.static(path.join(ROOT, 'public')));
+
+app.use('/api', filesRouter);
+app.use('/api', settingsRouter);
+app.use('/api', processRouter);
+
+app.listen(PORT, () => {
+  console.log(`SmartDining server running at http://localhost:${PORT}`);
+});

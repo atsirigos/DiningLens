@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmartDining</title>
+  <link rel="stylesheet" href="styles/main.css">
+  <link rel="stylesheet" href="styles/glass.css">
+  <link rel="stylesheet" href="styles/layout.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar" class="glass">
+      <div class="sidebar-header">
+        <h1 class="logo">SmartDining</h1>
+        <p class="logo-sub">Local Meal Analytics</p>
+      </div>
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-tab="settings">
+          <span class="nav-icon">⚙️</span>
+          <span class="nav-label">Settings</span>
+        </button>
+        <button class="nav-item" data-tab="gallery">
+          <span class="nav-icon">🖼️</span>
+          <span class="nav-label">Gallery</span>
+        </button>
+        <button class="nav-item" data-tab="processing">
+          <span class="nav-icon">⚡</span>
+          <span class="nav-label">Processing</span>
+        </button>
+        <button class="nav-item" data-tab="analytics">
+          <span class="nav-icon">📊</span>
+          <span class="nav-label">Analytics</span>
+        </button>
+      </nav>
+    </aside>
+
+    <main id="content">
+      <section id="panel-settings" class="panel active">
+        <header class="panel-header">
+          <h2>Settings</h2>
+          <p>Configure zones, seat layout, and common foods</p>
+        </header>
+        <div id="settings-content" class="panel-body"></div>
+      </section>
+
+      <section id="panel-gallery" class="panel">
+        <header class="panel-header">
+          <h2>Gallery</h2>
+          <p>Browse meal photos and videos from your data folder</p>
+        </header>
+        <div id="gallery-content" class="panel-body"></div>
+      </section>
+
+      <section id="panel-processing" class="panel">
+        <header class="panel-header">
+          <h2>Processing</h2>
+          <p>Run AI analysis on your meal photos</p>
+        </header>
+        <div id="processing-content" class="panel-body"></div>
+      </section>
+
+      <section id="panel-analytics" class="panel">
+        <header class="panel-header">
+          <h2>Analytics</h2>
+          <p>Visualize patterns across processed meals</p>
+        </header>
+        <div id="analytics-content" class="panel-body"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <script type="module" src="scripts/app.js"></script>
+</body>
+</html>
