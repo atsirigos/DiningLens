@@ -4,7 +4,8 @@
   "description": "Local web app for AI-powered meal analytics",
   "main": "server/server.js",
   "scripts": {
-    "dev": "nodemon server/server.js"
+    "dev": "nodemon server/server.js",
+    "diagnose": "node scripts/diagnose-meal-analysis.js"
   },
   "keywords": [],
   "author": "",

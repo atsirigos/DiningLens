@@ -23,7 +23,14 @@ A local-only web app that reads meal photos from a `data/` folder, runs AI analy
    npm run dev
    ```
 
-5. Open [http://localhost:3000](http://localhost:3000)
+5. **Diagnose meal analysis** (preflight + live API test on `data/` images)
+   ```bash
+   npm run diagnose
+   npm run diagnose -- --file 20260425_134151.jpg --verbose
+   npm run diagnose -- --dry-run
+   ```
+
+6. Open [http://localhost:3000](http://localhost:3000)
 
 ## Usage
 

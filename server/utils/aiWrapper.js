@@ -63,7 +63,7 @@ async function analyzeWithAnthropic(apiKey, modelId, mimeType, base64, userMessa
 
   const message = await client.messages.create({
     model: modelId,
-    max_tokens: 2048,
+    max_tokens: 8192,
     system: SYSTEM_PROMPT,
     messages: [
       {
