@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { resolveApiKey, resolveModel } = require('./aiConfig');
 
 const MIME_TYPES = {
   '.jpg': 'image/jpeg',
@@ -52,9 +53,14 @@ function parseJsonResponse(text) {
 }
 
 async function analyzeImage(filePath, settings) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === 'your_key_here') {
-    throw new Error('GEMINI_API_KEY is not configured in .env');
+  const provider = settings?.ai?.provider || 'google';
+  if (provider !== 'google') {
+    throw new Error(`Provider "${provider}" is not supported yet`);
+  }
+
+  const apiKey = resolveApiKey(settings);
+  if (!apiKey) {
+    throw new Error('API key is not configured. Add one in Settings.');
   }
 
   const ext = path.extname(filePath).toLowerCase();
@@ -65,9 +71,10 @@ async function analyzeImage(filePath, settings) {
 
   const imageBuffer = fs.readFileSync(filePath);
   const base64 = imageBuffer.toString('base64');
+  const modelId = resolveModel(settings);
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+  const model = genAI.getGenerativeModel({ model: modelId });
 
   const prompt = buildPrompt(settings);
 

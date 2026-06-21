@@ -215,6 +215,20 @@
 .lightbox-nav.next { right: 340px; }
 
 /* Settings */
+.api-key-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.api-key-row input {
+  flex: 1;
+}
+
+.api-key-hint {
+  margin-top: 0.5rem;
+}
+
 .settings-grid {
   display: grid;
   grid-template-columns: 1fr 320px;

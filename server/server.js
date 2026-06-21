@@ -7,11 +7,11 @@ require('dotenv').config();
 const filesRouter = require('./routes/files');
 const settingsRouter = require('./routes/settings');
 const processRouter = require('./routes/process');
+const { getDb } = require('./db/database');
 
 const ROOT = path.join(__dirname, '..');
 const DATA_DIR = path.join(ROOT, 'data');
 const PROCESSED_DIR = path.join(ROOT, 'processed');
-const SETTINGS_FILE = path.join(ROOT, 'settings.json');
 const RESULTS_FILE = path.join(PROCESSED_DIR, 'results.json');
 
 function ensureStartup() {
@@ -24,15 +24,7 @@ function ensureStartup() {
   if (!fs.existsSync(RESULTS_FILE)) {
     fs.writeFileSync(RESULTS_FILE, '{}', 'utf8');
   }
-  if (!fs.existsSync(SETTINGS_FILE)) {
-    const defaults = {
-      zones: [],
-      commonFoods: ['Salad', 'Bread', 'Pasta', 'Vegetables', 'Water'],
-      seatLayout: 2,
-      referenceImage: null,
-    };
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(defaults, null, 2), 'utf8');
-  }
+  getDb();
 }
 
 ensureStartup();

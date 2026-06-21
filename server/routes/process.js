@@ -2,11 +2,11 @@ const path = require('path');
 const fs = require('fs');
 const express = require('express');
 const { analyzeImage } = require('../utils/aiWrapper');
+const { getSettings } = require('../db/settingsStore');
 
 const router = express.Router();
 const RESULTS_FILE = path.join(__dirname, '..', '..', 'processed', 'results.json');
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
-const SETTINGS_FILE = path.join(__dirname, '..', '..', 'settings.json');
 
 function readResults() {
   if (!fs.existsSync(RESULTS_FILE)) {
@@ -21,17 +21,6 @@ function readResults() {
 
 function writeResults(results) {
   fs.writeFileSync(RESULTS_FILE, JSON.stringify(results, null, 2), 'utf8');
-}
-
-function readSettings() {
-  if (!fs.existsSync(SETTINGS_FILE)) {
-    return { zones: [], commonFoods: [] };
-  }
-  try {
-    return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
-  } catch {
-    return { zones: [], commonFoods: [] };
-  }
 }
 
 function resolveSafePath(filename) {
@@ -77,7 +66,7 @@ router.post('/process', async (req, res) => {
   }
 
   try {
-    const settings = readSettings();
+    const settings = getSettings();
     const result = await analyzeImage(filePath, settings);
     result.processedAt = new Date().toISOString();
     result.filename = filename;

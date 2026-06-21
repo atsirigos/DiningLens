@@ -9,6 +9,58 @@ let currentRect = null;
 
 const container = () => document.getElementById('settings-content');
 
+function renderModelOptions() {
+  const provider = settings.ai?.provider || 'google';
+  const models = settings.aiProviders?.[provider]?.models || [];
+  const selected = settings.ai?.model || models[0]?.id || '';
+
+  return models.map((m) => `
+    <option value="${m.id}" ${selected === m.id ? 'selected' : ''}>${m.label}</option>
+  `).join('');
+}
+
+function renderProviderOptions() {
+  const providers = settings.aiProviders || { google: { label: 'Google' } };
+  const selected = settings.ai?.provider || 'google';
+
+  return Object.entries(providers).map(([id, p]) => `
+    <option value="${id}" ${selected === id ? 'selected' : ''}>${p.label}</option>
+  `).join('');
+}
+
+function renderAiCard() {
+  const apiKeySet = settings.ai?.apiKeySet;
+
+  return `
+    <div class="card">
+      <h3>AI Configuration</h3>
+      <p style="margin-top: 0.35rem; font-size: 0.875rem; color: var(--color-text-muted);">
+        Choose your AI provider and model for meal photo analysis.
+      </p>
+      <div class="form-group" style="margin-top: 1rem;">
+        <label for="ai-provider">Provider</label>
+        <select id="ai-provider">${renderProviderOptions()}</select>
+      </div>
+      <div class="form-group">
+        <label for="ai-model">Model</label>
+        <select id="ai-model">${renderModelOptions()}</select>
+      </div>
+      <div class="form-group">
+        <label for="api-key">API Key</label>
+        <div class="api-key-row">
+          <input
+            type="password"
+            id="api-key"
+            placeholder="${apiKeySet ? 'Key saved — enter new value to replace' : 'Enter your API key'}"
+            autocomplete="off"
+          >
+          <button type="button" class="btn btn-ghost btn-sm" id="toggle-api-key" aria-label="Show API key">Show</button>
+        </div>
+        ${apiKeySet ? '<p class="api-key-hint"><span class="badge badge-success">Configured</span></p>' : ''}
+      </div>
+    </div>`;
+}
+
 function render() {
   container().innerHTML = `
     <div class="settings-grid">
@@ -33,6 +85,8 @@ function render() {
       </div>
 
       <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+        ${renderAiCard()}
+
         <div class="card">
           <h3>Seat Layout</h3>
           <div class="seat-picker" id="seat-picker" style="margin-top: 1rem;">
@@ -233,6 +287,35 @@ function onMouseUp() {
 }
 
 function bindEvents() {
+  document.getElementById('ai-provider')?.addEventListener('change', (e) => {
+    if (!settings.ai) settings.ai = {};
+    settings.ai.provider = e.target.value;
+
+    const models = settings.aiProviders?.[settings.ai.provider]?.models || [];
+    settings.ai.model = models[0]?.id || '';
+
+    const modelSelect = document.getElementById('ai-model');
+    if (modelSelect) {
+      modelSelect.innerHTML = models.map((m) => `
+        <option value="${m.id}" ${settings.ai.model === m.id ? 'selected' : ''}>${m.label}</option>
+      `).join('');
+    }
+  });
+
+  document.getElementById('ai-model')?.addEventListener('change', (e) => {
+    if (!settings.ai) settings.ai = {};
+    settings.ai.model = e.target.value;
+  });
+
+  document.getElementById('toggle-api-key')?.addEventListener('click', () => {
+    const input = document.getElementById('api-key');
+    const btn = document.getElementById('toggle-api-key');
+    if (!input || !btn) return;
+    const showing = input.type === 'text';
+    input.type = showing ? 'password' : 'text';
+    btn.textContent = showing ? 'Show' : 'Hide';
+  });
+
   document.getElementById('ref-image-select')?.addEventListener('change', (e) => {
     settings.referenceImage = e.target.value || null;
     const wrap = document.getElementById('canvas-wrap');
@@ -279,11 +362,30 @@ function bindEvents() {
 
 async function saveSettings() {
   try {
+    const payload = {
+      zones: settings.zones,
+      commonFoods: settings.commonFoods,
+      seatLayout: settings.seatLayout,
+      referenceImage: settings.referenceImage,
+      ai: {
+        provider: document.getElementById('ai-provider')?.value || settings.ai?.provider || 'google',
+        model: document.getElementById('ai-model')?.value || settings.ai?.model || 'gemini-2.5-flash',
+      },
+    };
+
+    const apiKey = document.getElementById('api-key')?.value.trim();
+    if (apiKey) {
+      payload.ai.apiKey = apiKey;
+    }
+
     settings = await apiFetch('/api/settings', {
       method: 'POST',
-      body: JSON.stringify(settings),
+      body: JSON.stringify(payload),
     });
+
+    document.getElementById('api-key').value = '';
     showToast('Settings saved successfully', 'success');
+    render();
   } catch (err) {
     showToast(err.message, 'error');
   }

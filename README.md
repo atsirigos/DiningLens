@@ -1,6 +1,6 @@
 # SmartDining
 
-A local-only web app that reads meal photos from a `data/` folder, runs AI analysis via the Gemini API, and generates meal analytics. No cloud uploads. No database. All data stays on your machine.
+A local-only web app that reads meal photos from a `data/` folder, runs AI analysis via the Gemini API, and generates meal analytics. No cloud uploads. All data stays on your machine in a local SQLite database and JSON cache files.
 
 ## Setup
 
@@ -20,7 +20,7 @@ A local-only web app that reads meal photos from a `data/` folder, runs AI analy
 
 4. **Start the server**
    ```bash
-   npm start
+   npm run dev
    ```
 
 5. Open [http://localhost:3000](http://localhost:3000)
@@ -39,9 +39,9 @@ SmartDining/
 ├── server/          Express backend + Gemini integration
 ├── public/          Frontend SPA (HTML/CSS/JS)
 ├── data/            Your meal photos (not tracked in git)
+├── db/              Local SQLite database (settings)
 ├── processed/       Cached AI results (results.json)
-├── settings.json    Zone definitions and config
-└── .env             API key (not tracked in git)
+└── .env             Optional fallback API key (not tracked in git)
 ```
 
 ## API Endpoints

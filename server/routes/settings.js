@@ -1,32 +1,25 @@
-const path = require('path');
-const fs = require('fs');
 const express = require('express');
+const { AI_PROVIDERS, DEFAULT_AI } = require('../utils/aiConfig');
+const { DEFAULTS, getSettings, saveSettings } = require('../db/settingsStore');
 
 const router = express.Router();
-const SETTINGS_FILE = path.join(__dirname, '..', '..', 'settings.json');
 
-const DEFAULTS = {
-  zones: [],
-  commonFoods: ['Salad', 'Bread', 'Pasta', 'Vegetables', 'Water'],
-  seatLayout: 2,
-  referenceImage: null,
-};
-
-function readSettings() {
-  if (!fs.existsSync(SETTINGS_FILE)) {
-    return { ...DEFAULTS };
-  }
-  try {
-    const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
-    return { ...DEFAULTS, ...data };
-  } catch {
-    return { ...DEFAULTS };
-  }
+function sanitizeForClient(settings) {
+  const { ai, ...rest } = settings;
+  return {
+    ...rest,
+    ai: {
+      provider: ai.provider,
+      model: ai.model,
+      apiKeySet: Boolean(ai.apiKey?.trim()),
+    },
+    aiProviders: AI_PROVIDERS,
+  };
 }
 
 router.get('/settings', (req, res) => {
   try {
-    res.json(readSettings());
+    res.json(sanitizeForClient(getSettings()));
   } catch (err) {
     res.status(500).json({ error: 'Failed to read settings' });
   }
@@ -34,9 +27,28 @@ router.get('/settings', (req, res) => {
 
 router.post('/settings', (req, res) => {
   try {
-    const settings = { ...DEFAULTS, ...req.body };
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8');
-    res.json(settings);
+    const existing = getSettings();
+    const incoming = req.body || {};
+
+    const settings = {
+      ...DEFAULTS,
+      ...incoming,
+      ai: {
+        ...DEFAULT_AI,
+        ...existing.ai,
+        ...incoming.ai,
+      },
+    };
+
+    const newKey = incoming.ai?.apiKey?.trim();
+    if (newKey) {
+      settings.ai.apiKey = newKey;
+    } else {
+      settings.ai.apiKey = existing.ai.apiKey || '';
+    }
+
+    const saved = saveSettings(settings);
+    res.json(sanitizeForClient(saved));
   } catch (err) {
     res.status(500).json({ error: 'Failed to save settings' });
   }
