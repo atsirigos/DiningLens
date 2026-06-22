@@ -38,10 +38,11 @@ Open [`project-board.html`](project-board.html) in your browser for standalone t
 
 ## Usage
 
-1. **Settings** — Draw zones on a reference photo, configure seat layout and common foods.
-2. **Gallery** — Browse all files in `data/` with filters and a full-screen lightbox.
-3. **Processing** — Run AI analysis on individual photos or batch-process all.
-4. **Analytics** — View charts for food frequency, per-seat breakdown, meal timeline, and export results.
+1. **Settings** — Configure AI provider, model, and API key.
+2. **Zones** — Draw named zones on a reference photo.
+3. **Gallery** — Browse all files in `data/` with filters and a full-screen lightbox.
+4. **Processing** — Run AI analysis on individual photos or batch-process all.
+5. **Analytics** — View charts for food frequency, calories, and export results.
 
 ## Project Structure
 

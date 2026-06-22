@@ -7,16 +7,14 @@ const LEGACY_SETTINGS_FILE = path.join(__dirname, '..', '..', 'settings.json');
 
 const DEFAULTS = {
   zones: [],
-  commonFoods: ['Salad', 'Bread', 'Pasta', 'Vegetables', 'Water'],
-  seatLayout: 2,
   referenceImage: null,
   ai: { ...DEFAULT_AI },
 };
 
 function normalize(settings) {
   return {
-    ...DEFAULTS,
-    ...settings,
+    zones: Array.isArray(settings?.zones) ? settings.zones : DEFAULTS.zones,
+    referenceImage: settings?.referenceImage ?? DEFAULTS.referenceImage,
     ai: { ...DEFAULT_AI, ...settings?.ai },
   };
 }

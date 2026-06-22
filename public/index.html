@@ -21,6 +21,10 @@
           <span class="nav-icon">⚙️</span>
           <span class="nav-label">Settings</span>
         </button>
+        <button class="nav-item" data-tab="zones">
+          <span class="nav-icon">📐</span>
+          <span class="nav-label">Zones</span>
+        </button>
         <button class="nav-item" data-tab="gallery">
           <span class="nav-icon">🖼️</span>
           <span class="nav-label">Gallery</span>
@@ -40,9 +44,17 @@
       <section id="panel-settings" class="panel active">
         <header class="panel-header">
           <h2>Settings</h2>
-          <p>Configure zones, seat layout, and common foods</p>
+          <p>Configure AI provider settings for meal photo analysis</p>
         </header>
         <div id="settings-content" class="panel-body"></div>
+      </section>
+
+      <section id="panel-zones" class="panel">
+        <header class="panel-header">
+          <h2>Zones</h2>
+          <p>Draw named zones on a reference photo for future zone-based analysis</p>
+        </header>
+        <div id="zones-content" class="panel-body"></div>
       </section>
 
       <section id="panel-gallery" class="panel">

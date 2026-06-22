@@ -252,8 +252,8 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  max-height: 200px;
-  overflow-y: auto;
+  max-height: none;
+  overflow-y: visible;
 }
 
 .zone-list-item {
@@ -268,39 +268,6 @@
 .zone-list-item input {
   flex: 1;
   padding: 0.25rem 0.5rem;
-}
-
-.foods-list {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.foods-list-item {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.foods-list-item input {
-  flex: 1;
-}
-
-.seat-picker {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.seat-picker button {
-  min-width: 60px;
-}
-
-.seat-picker button.active {
-  background: var(--color-accent);
-  color: white;
-  border-color: var(--color-accent);
 }
 
 /* Processing */

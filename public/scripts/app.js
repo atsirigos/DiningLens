@@ -2,6 +2,7 @@ const loadedModules = {};
 
 const TAB_MODULES = {
   settings: () => import('./settings.js'),
+  zones: () => import('./zones.js'),
   gallery: () => import('./gallery.js'),
   processing: () => import('./processing.js'),
   analytics: () => import('./analytics.js'),
