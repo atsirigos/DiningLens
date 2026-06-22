@@ -39,8 +39,8 @@ Open [`project-board.html`](project-board.html) in your browser for standalone t
 ## Usage
 
 1. **Settings** — Configure AI provider, model, and API key.
-2. **Zones** — Draw named zones on a reference photo.
-3. **Gallery** — Browse all files in `data/` with filters and a full-screen lightbox.
+2. **Zones** — Draw named zones on a reference photo; the same layout applies to every photo from your fixed camera.
+3. **Gallery** — Browse all files in `data/` with filters and a full-screen lightbox (zone overlays when configured).
 4. **Processing** — Run AI analysis on individual photos or batch-process all.
 5. **Analytics** — View charts for food frequency, calories, and export results.
 

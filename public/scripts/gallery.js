@@ -1,9 +1,11 @@
 import { apiFetch, formatBytes, formatDate, showToast } from './utils.js';
 import { renderMealSummary } from './mealResults.js';
+import { mountZoneOverlay } from './zoneOverlay.js';
 
 let allFiles = [];
 let filteredFiles = [];
 let results = {};
+let appSettings = { zones: [] };
 let lightboxIndex = -1;
 
 const container = () => document.getElementById('gallery-content');
@@ -113,12 +115,21 @@ function openLightbox(index) {
   if (!file) return;
 
   const existing = document.querySelector('.lightbox');
-  if (existing) existing.remove();
+  if (existing) {
+    if (existing._zoneResize) {
+      window.removeEventListener('resize', existing._zoneResize);
+    }
+    existing.remove();
+  }
 
   const src = `/api/file/${encodeURIComponent(file.path || file.name)}`;
   const media = file.type === 'video'
     ? `<video src="${src}" controls autoplay></video>`
-    : `<img src="${src}" alt="${file.name}">`;
+    : `<div class="zone-photo-host lightbox-photo-host"><img src="${src}" alt="${file.name}"></div>`;
+
+  const zoneNote = appSettings.zones?.length
+    ? `<p class="zone-applied-note">${appSettings.zones.length} saved zone(s) apply to this view</p>`
+    : '';
 
   const lb = document.createElement('div');
   lb.className = 'lightbox';
@@ -130,6 +141,7 @@ function openLightbox(index) {
         <button class="btn btn-ghost lightbox-nav next" aria-label="Next">→</button>
       ` : ''}
       ${media}
+      ${zoneNote}
     </div>
     <aside class="lightbox-sidebar glass">
       <h3>${file.name}</h3>
@@ -140,6 +152,17 @@ function openLightbox(index) {
     </aside>`;
 
   document.body.appendChild(lb);
+
+  if (file.type === 'image' && appSettings.zones?.length) {
+    const img = lb.querySelector('.lightbox-photo-host img');
+    const host = lb.querySelector('.lightbox-photo-host');
+    const drawZones = () => mountZoneOverlay(host, img, appSettings.zones);
+    if (img.complete) drawZones();
+    else img.addEventListener('load', drawZones);
+    window.addEventListener('resize', drawZones, { once: false });
+    lb._zoneResize = drawZones;
+  }
+
   lb.querySelector('.lightbox-close').addEventListener('click', closeLightbox);
   lb.querySelector('.lightbox-nav.prev')?.addEventListener('click', () => navigateLightbox(-1));
   lb.querySelector('.lightbox-nav.next')?.addEventListener('click', () => navigateLightbox(1));
@@ -149,7 +172,11 @@ function openLightbox(index) {
 }
 
 function closeLightbox() {
-  document.querySelector('.lightbox')?.remove();
+  const lb = document.querySelector('.lightbox');
+  if (lb?._zoneResize) {
+    window.removeEventListener('resize', lb._zoneResize);
+  }
+  lb?.remove();
   document.removeEventListener('keydown', handleLightboxKey);
   lightboxIndex = -1;
 }
@@ -184,12 +211,14 @@ function bindFilters() {
 async function loadData() {
   renderSkeleton();
   try {
-    const [files, res] = await Promise.all([
+    const [files, res, settings] = await Promise.all([
       apiFetch('/api/files'),
       apiFetch('/api/results'),
+      apiFetch('/api/settings'),
     ]);
     allFiles = files;
     results = res;
+    appSettings = settings;
     filteredFiles = [...allFiles];
 
     container().innerHTML = `

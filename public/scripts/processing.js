@@ -3,6 +3,7 @@ import { renderMealSummary, PROCESSING_ERROR_MSG } from './mealResults.js';
 
 let files = [];
 let results = {};
+let appSettings = { zones: [] };
 let processing = new Set();
 
 const container = () => document.getElementById('processing-content');
@@ -41,8 +42,20 @@ function render() {
   }
 
   const doneCount = imageFiles.filter((f) => results[f.name]).length;
+  const zoneCount = appSettings.zones?.length || 0;
 
   container().innerHTML = `
+    ${zoneCount ? `
+      <div class="card zone-config-banner" style="padding: 1rem; margin-bottom: 0;">
+        <p style="font-size: 0.875rem; margin: 0;">
+          <strong>${zoneCount} zone${zoneCount === 1 ? '' : 's'}</strong> configured.
+          Each photo is cropped per zone and analyzed with a <strong>separate API call</strong> per zone.
+        </p>
+        <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0.35rem 0 0;">
+          ${appSettings.zones.map((z) => z.name).join(' · ')}
+        </p>
+      </div>
+    ` : ''}
     <div class="card" style="padding: 1rem;">
       <div class="form-group" style="margin-bottom: 0;">
         <label for="meal-context">Meal context (optional)</label>
@@ -213,9 +226,10 @@ function showSummary(result) {
 export async function init() {
   container().innerHTML = '<div class="loading-center"><div class="loading-spinner"></div></div>';
   try {
-    [files, results] = await Promise.all([
+    [files, results, appSettings] = await Promise.all([
       apiFetch('/api/files'),
       apiFetch('/api/results'),
+      apiFetch('/api/settings'),
     ]);
     render();
   } catch (err) {

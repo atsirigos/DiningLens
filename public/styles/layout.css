@@ -190,6 +190,75 @@
   border-radius: var(--radius-sm);
 }
 
+.lightbox-photo-host {
+  position: relative;
+  display: inline-block;
+  width: min(100%, 900px);
+  aspect-ratio: 16 / 9;
+  max-height: 85vh;
+}
+
+.lightbox-photo-host img {
+  max-width: none;
+  max-height: none;
+}
+
+.zone-applied-note {
+  position: absolute;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  white-space: nowrap;
+}
+
+.zone-rot-wrap {
+  position: absolute;
+  transform: rotate(90deg);
+  transform-origin: top left;
+  pointer-events: none;
+}
+
+.zone-rot-wrap img {
+  pointer-events: auto;
+}
+
+.zone-overlay-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.zone-overlay-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid #6b5ce7;
+  background: rgba(107, 92, 231, 0.12);
+}
+
+.zone-overlay-label {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #1e293b;
+  line-height: 1.2;
+  text-shadow: 0 0 4px rgba(255, 255, 255, 0.9);
+}
+
+.zone-config-banner {
+  border-left: 3px solid var(--color-accent);
+}
+
 .lightbox-sidebar {
   width: 320px;
   padding: 1.5rem;
@@ -235,16 +304,35 @@
   gap: 1.5rem;
 }
 
+#zones-content .settings-grid {
+  grid-template-columns: minmax(0, 1.5fr) 300px;
+}
+
 .zone-canvas-wrap {
   position: relative;
-  display: inline-block;
+  display: block;
+  width: 100%;
   max-width: 100%;
+}
+
+#zones-content .zone-canvas-wrap {
+  aspect-ratio: 16 / 9;
+  background: #e2e8f0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
 }
 
 .zone-canvas-wrap canvas {
   max-width: 100%;
   border-radius: var(--radius-sm);
   cursor: crosshair;
+}
+
+#zones-content .zone-canvas-wrap canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 0;
 }
 
 .zone-list {

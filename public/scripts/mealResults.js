@@ -23,12 +23,16 @@ export function renderMealSummary(result, { compact = false } = {}) {
   const totals = result.totals || {};
   const insights = result.health_insights || { concerns: [], positives: [], summary: '' };
 
+  const hasZones = result.items?.some((item) => item.zone);
+  const zoneHeader = hasZones ? '<th>Zone</th>' : '';
+
   const itemsTable = result.items.length
     ? `
       <table class="meal-items-table">
         <thead>
           <tr>
             <th>Item</th>
+            ${zoneHeader}
             <th>Portion</th>
             <th>Cal</th>
             <th>Protein</th>
@@ -43,6 +47,7 @@ export function renderMealSummary(result, { compact = false } = {}) {
                 ${item.flagged ? '<span class="flag-icon" title="Ambiguous item">⚠</span> ' : ''}
                 ${item.name}
               </td>
+              ${hasZones ? `<td>${item.zone || '—'}</td>` : ''}
               <td>${item.portion_estimate || '—'}</td>
               <td>${Math.round(item.calories || 0)}</td>
               <td>${(item.protein_g || 0).toFixed(1)}g</td>
@@ -50,7 +55,7 @@ export function renderMealSummary(result, { compact = false } = {}) {
               <td>${(item.fat_total_g || 0).toFixed(1)}g</td>
             </tr>
             ${item.flagged && item.flag_reason && !compact ? `
-              <tr class="flag-reason-row"><td colspan="6">${item.flag_reason}</td></tr>
+              <tr class="flag-reason-row"><td colspan="${hasZones ? 7 : 6}">${item.flag_reason}</td></tr>
             ` : ''}
           `).join('')}
         </tbody>
@@ -58,9 +63,11 @@ export function renderMealSummary(result, { compact = false } = {}) {
     : '<p>No food items identified.</p>';
 
   if (compact) {
+    const zoneSuffix = (item) => (item.zone ? ` · ${item.zone}` : '');
     return `
       <p><strong>${result.meal_name || 'Meal'}</strong></p>
       <span class="badge ${confidenceClass(result.confidence)}">${result.confidence || '—'} confidence</span>
+      ${result.zones_applied?.length ? `<p style="margin-top: 0.35rem; font-size: 0.75rem; color: var(--color-text-muted);">Zones: ${result.zones_applied.join(', ')}</p>` : ''}
       <p style="margin-top: 0.5rem; font-size: 0.875rem;">
         ${Math.round(totals.calories || 0)} kcal ·
         ${(totals.protein_g || 0).toFixed(0)}g protein ·
@@ -68,7 +75,7 @@ export function renderMealSummary(result, { compact = false } = {}) {
         ${(totals.fat_total_g || 0).toFixed(0)}g fat
       </p>
       <ul style="margin-top: 0.5rem; padding-left: 1.25rem; font-size: 0.875rem;">
-        ${result.items.slice(0, 5).map((item) => `<li>${item.name} (${item.portion_estimate || '—'})</li>`).join('')}
+        ${result.items.slice(0, 5).map((item) => `<li>${item.name}${zoneSuffix(item)} (${item.portion_estimate || '—'})</li>`).join('')}
         ${result.items.length > 5 ? `<li>+${result.items.length - 5} more</li>` : ''}
       </ul>`;
   }
@@ -80,6 +87,7 @@ export function renderMealSummary(result, { compact = false } = {}) {
         <span class="badge ${confidenceClass(result.confidence)}">${result.confidence || '—'} confidence</span>
       </div>
       ${result.confidence_notes ? `<p class="confidence-notes">${result.confidence_notes}</p>` : ''}
+      ${result.zones_applied?.length ? `<p class="confidence-notes">Analyzed per zone (${result.zones_applied.length} crops, ${result.zones_applied.join(', ')})</p>` : ''}
 
       <div class="meal-totals-grid">
         <div class="meal-total-card">

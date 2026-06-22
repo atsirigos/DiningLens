@@ -4,6 +4,8 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Anthropic = require('@anthropic-ai/sdk');
 const { resolveApiKey, resolveModel } = require('./aiConfig');
 const { SYSTEM_PROMPT, buildUserMessage } = require('../prompts/mealAnalysisPrompt');
+const { cropAllZones } = require('./zoneCropper');
+const { mergeZoneResults } = require('./mergeZoneResults');
 
 const MIME_TYPES = {
   '.jpg': 'image/jpeg',
@@ -94,7 +96,7 @@ async function analyzeWithAnthropic(apiKey, modelId, mimeType, base64, userMessa
   return textBlock.text;
 }
 
-async function analyzeImage(filePath, settings, userContext) {
+async function analyzeImageData(base64, mimeType, settings, userContext) {
   const provider = settings?.ai?.provider || 'google';
 
   const apiKey = resolveApiKey(settings);
@@ -102,7 +104,6 @@ async function analyzeImage(filePath, settings, userContext) {
     throw new Error('API key is not configured. Add one in Settings.');
   }
 
-  const { mimeType, base64 } = readImage(filePath);
   const modelId = resolveModel(settings);
   const userMessage = buildUserMessage(userContext);
 
@@ -122,4 +123,26 @@ async function analyzeImage(filePath, settings, userContext) {
   return validateMealResult(parsed);
 }
 
-module.exports = { analyzeImage };
+async function analyzeImage(filePath, settings, userContext) {
+  const zones = (settings?.zones || []).filter((z) => z?.name);
+
+  if (zones.length === 0) {
+    const { mimeType, base64 } = readImage(filePath);
+    return analyzeImageData(base64, mimeType, settings, userContext);
+  }
+
+  const crops = await cropAllZones(filePath, zones);
+  if (crops.length === 0) {
+    throw new Error('No valid zones configured for cropping');
+  }
+
+  const zoneResults = [];
+  for (const { zone, image } of crops) {
+    const result = await analyzeImageData(image.base64, image.mimeType, settings, userContext);
+    zoneResults.push({ zoneName: zone.name, result });
+  }
+
+  return mergeZoneResults(zoneResults);
+}
+
+module.exports = { analyzeImage, analyzeImageData };

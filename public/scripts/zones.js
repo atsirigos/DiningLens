@@ -6,6 +6,11 @@ let canvas, ctx, img;
 let drawing = false;
 let startX, startY;
 let currentRect = null;
+let imageRect = { x: 0, y: 0, w: 0, h: 0 };
+let imageRotated = false;
+
+const LANDSCAPE_ASPECT = 16 / 9;
+const CANVAS_MAX_WIDTH = 900;
 
 const container = () => document.getElementById('zones-content');
 
@@ -27,14 +32,15 @@ function render() {
           <canvas id="zone-canvas"></canvas>
         </div>
         <p style="margin-top: 0.75rem; font-size: 0.875rem; color: var(--color-text-muted);">
-          Click and drag on the image to draw a zone. You'll be prompted to name it.
+          Draw zones on a reference photo to set the layout. Portrait photos are rotated so the wide side is horizontal.
+          Saved zones use the same coordinates for <strong>all photos</strong>. Processing crops each zone and analyzes it separately.
         </p>
       </div>
 
       <div class="card">
         <h3>Zones</h3>
         <p style="margin-top: 0.35rem; font-size: 0.875rem; color: var(--color-text-muted);">
-          Zones you've drawn on the reference image. Rename or remove them here.
+          These zones apply to every image when processing and in the gallery overlay — not only the reference photo.
         </p>
         <ul class="zone-list" id="zone-list" style="margin-top: 1rem;"></ul>
         <button class="btn btn-primary" id="save-zones-btn" style="margin-top: 1.5rem;">Save Zones</button>
@@ -81,6 +87,74 @@ function renderZoneList() {
   });
 }
 
+function getEffectiveDimensions() {
+  if (!img) return { width: 0, height: 0, rotated: false };
+  if (img.height > img.width) {
+    return { width: img.height, height: img.width, rotated: true };
+  }
+  return { width: img.width, height: img.height, rotated: false };
+}
+
+function layoutCanvas() {
+  const maxW = CANVAS_MAX_WIDTH;
+  const maxH = maxW / LANDSCAPE_ASPECT;
+  canvas.width = maxW;
+  canvas.height = maxH;
+
+  const { width: effW, height: effH, rotated } = getEffectiveDimensions();
+  imageRotated = rotated;
+
+  const imgAspect = effW / effH;
+  let drawW;
+  let drawH;
+
+  if (imgAspect > LANDSCAPE_ASPECT) {
+    drawW = maxW;
+    drawH = maxW / imgAspect;
+  } else {
+    drawH = maxH;
+    drawW = maxH * imgAspect;
+  }
+
+  imageRect = {
+    x: (maxW - drawW) / 2,
+    y: (maxH - drawH) / 2,
+    w: drawW,
+    h: drawH,
+  };
+}
+
+function drawPhoto() {
+  if (imageRotated) {
+    ctx.save();
+    ctx.translate(imageRect.x + imageRect.w, imageRect.y);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(img, 0, 0, imageRect.h, imageRect.w);
+    ctx.restore();
+  } else {
+    ctx.drawImage(img, imageRect.x, imageRect.y, imageRect.w, imageRect.h);
+  }
+}
+
+function getCanvasCoords(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return {
+    x: (e.clientX - rect.left) * scaleX,
+    y: (e.clientY - rect.top) * scaleY,
+  };
+}
+
+function zoneToCanvas(zone) {
+  return {
+    x: imageRect.x + zone.x * imageRect.w,
+    y: imageRect.y + zone.y * imageRect.h,
+    w: zone.width * imageRect.w,
+    h: zone.height * imageRect.h,
+  };
+}
+
 function loadCanvasImage(filename) {
   canvas = document.getElementById('zone-canvas');
   if (!canvas) return;
@@ -89,10 +163,7 @@ function loadCanvasImage(filename) {
   img = new Image();
   img.crossOrigin = 'anonymous';
   img.onload = () => {
-    const maxW = 700;
-    const scale = Math.min(1, maxW / img.width);
-    canvas.width = img.width * scale;
-    canvas.height = img.height * scale;
+    layoutCanvas();
     redrawCanvas();
   };
   img.src = `/api/file/${encodeURIComponent(filename)}`;
@@ -107,13 +178,12 @@ function redrawCanvas() {
   if (!ctx || !img) return;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#e2e8f0';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawPhoto();
 
   (settings.zones || []).forEach((zone) => {
-    const x = zone.x * canvas.width;
-    const y = zone.y * canvas.height;
-    const w = zone.width * canvas.width;
-    const h = zone.height * canvas.height;
+    const { x, y, w, h } = zoneToCanvas(zone);
 
     ctx.strokeStyle = '#6b5ce7';
     ctx.lineWidth = 2;
@@ -135,18 +205,16 @@ function redrawCanvas() {
 }
 
 function onMouseDown(e) {
-  const rect = canvas.getBoundingClientRect();
-  startX = e.clientX - rect.left;
-  startY = e.clientY - rect.top;
+  const { x, y } = getCanvasCoords(e);
+  startX = x;
+  startY = y;
   drawing = true;
   currentRect = { x: startX, y: startY, w: 0, h: 0 };
 }
 
 function onMouseMove(e) {
   if (!drawing) return;
-  const rect = canvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
+  const { x, y } = getCanvasCoords(e);
   currentRect.w = x - startX;
   currentRect.h = y - startY;
   redrawCanvas();
@@ -177,10 +245,10 @@ function onMouseUp() {
 
   settings.zones.push({
     name,
-    x: x / canvas.width,
-    y: y / canvas.height,
-    width: w / canvas.width,
-    height: h / canvas.height,
+    x: (x - imageRect.x) / imageRect.w,
+    y: (y - imageRect.y) / imageRect.h,
+    width: w / imageRect.w,
+    height: h / imageRect.h,
   });
 
   currentRect = null;
