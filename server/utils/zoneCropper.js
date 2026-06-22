@@ -1,31 +1,33 @@
 const sharp = require('sharp');
+const { getEffectiveDimensions, zoneToLandscapePixels } = require('./zoneGeometry');
 
 /**
  * Zone coordinates are normalized (0–1) on a landscape view (wide side horizontal).
  * Portrait photos are rotated 90° clockwise before cropping, matching the Zones editor.
+ *
+ * Apply EXIF orientation first so pixel data matches browser naturalWidth/naturalHeight.
  */
 async function cropZoneFromPhoto(filePath, zone) {
-  const meta = await sharp(filePath).metadata();
-  const rotated = meta.height > meta.width;
-  const width = rotated ? meta.height : meta.width;
-  const height = rotated ? meta.width : meta.height;
+  const orientedBuffer = await sharp(filePath).rotate().toBuffer();
+  const orientedMeta = await sharp(orientedBuffer).metadata();
 
-  const left = Math.max(0, Math.round(zone.x * width));
-  const top = Math.max(0, Math.round(zone.y * height));
-  const cropW = Math.min(width - left, Math.round(zone.width * width));
-  const cropH = Math.min(height - top, Math.round(zone.height * height));
+  const { width: effWidth, height: effHeight, rotated } = getEffectiveDimensions(
+    orientedMeta.width,
+    orientedMeta.height,
+  );
 
-  if (cropW < 8 || cropH < 8) {
-    throw new Error(`Zone "${zone.name}" crop is too small (${cropW}×${cropH}px)`);
+  const rect = zoneToLandscapePixels(zone, effWidth, effHeight);
+
+  if (rect.width < 8 || rect.height < 8) {
+    throw new Error(`Zone "${zone.name}" crop is too small (${rect.width}×${rect.height}px)`);
   }
 
-  let pipeline = sharp(filePath);
-  if (rotated) {
-    pipeline = pipeline.rotate(-90);
-  }
+  const landscapeBuffer = rotated
+    ? await sharp(orientedBuffer).rotate(90).toBuffer()
+    : orientedBuffer;
 
-  const buffer = await pipeline
-    .extract({ left, top, width: cropW, height: cropH })
+  const buffer = await sharp(landscapeBuffer)
+    .extract(rect)
     .jpeg({ quality: 90 })
     .toBuffer();
 

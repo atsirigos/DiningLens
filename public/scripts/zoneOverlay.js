@@ -1,11 +1,8 @@
 /** Shared zone layout helpers — matches the Zones editor display logic. */
 
-export function getEffectiveDimensions(naturalWidth, naturalHeight) {
-  if (naturalHeight > naturalWidth) {
-    return { width: naturalHeight, height: naturalWidth, rotated: true };
-  }
-  return { width: naturalWidth, height: naturalHeight, rotated: false };
-}
+import { getEffectiveDimensions } from './zoneGeometry.js';
+
+export { getEffectiveDimensions } from './zoneGeometry.js';
 
 export function computeImageRect(effW, effH, frameW, frameH) {
   const frameAspect = frameW / frameH;

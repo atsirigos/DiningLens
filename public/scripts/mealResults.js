@@ -222,7 +222,8 @@ export function getGalleryZoneTabs(result, settingsZones = []) {
 
 function zoneCropUrl(filePath, zoneName) {
   if (!filePath || !zoneName) return '';
-  return `/api/zone-crop?file=${encodeURIComponent(filePath)}&zone=${encodeURIComponent(zoneName)}`;
+  const cacheBust = Date.now();
+  return `/api/zone-crop?file=${encodeURIComponent(filePath)}&zone=${encodeURIComponent(zoneName)}&t=${cacheBust}`;
 }
 
 function getFilePath(file) {

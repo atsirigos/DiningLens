@@ -1,5 +1,6 @@
 import { apiFetch, formatBytes, formatDate, showToast } from './utils.js';
 import { renderMealSummary, PROCESSING_ERROR_MSG } from './mealResults.js';
+import { confirmZoneProcessing } from './zonePreviewModal.js';
 
 let files = [];
 let results = {};
@@ -120,8 +121,20 @@ function updateRowStatus(filename, status) {
   }
 }
 
+function getFileRecord(filename) {
+  return files.find((file) => file.name === filename);
+}
+
 async function processFile(filename) {
   if (processing.has(filename)) return;
+
+  const file = getFileRecord(filename);
+  const confirmed = await confirmZoneProcessing({
+    filename,
+    filePath: file?.path || filename,
+    zones: appSettings.zones,
+  });
+  if (!confirmed) return;
 
   if (results[filename]) {
     await clearCache(filename, false);
@@ -182,6 +195,16 @@ async function processAll() {
   let lastResult = null;
 
   for (const file of imageFiles) {
+    const confirmed = await confirmZoneProcessing({
+      filename: file.name,
+      filePath: file.path || file.name,
+      zones: appSettings.zones,
+    });
+    if (!confirmed) {
+      showToast('Batch processing cancelled', 'info');
+      break;
+    }
+
     processing.add(file.name);
     updateRowStatus(file.name, 'processing');
 
@@ -203,7 +226,9 @@ async function processAll() {
     }
   }
 
-  showToast(`Batch complete: ${completed}/${total} processed`, 'success');
+  if (completed > 0) {
+    showToast(`Batch complete: ${completed}/${total} processed`, 'success');
+  }
   render();
   if (lastResult) showSummary(lastResult);
   const ctx = document.getElementById('meal-context');
