@@ -57,6 +57,16 @@ function mergeZoneResults(zoneResults) {
     ? mealNames[0]
     : `Meal (${zoneResults.length} zones)`;
 
+  const zone_results = zoneResults.map(({ zoneName, result: zoneResult }) => ({
+    zone: zoneName,
+    meal_name: zoneResult.meal_name || zoneName,
+    confidence: zoneResult.confidence,
+    confidence_notes: zoneResult.confidence_notes || '',
+    items: zoneResult.items || [],
+    totals: zoneResult.totals || {},
+    health_insights: zoneResult.health_insights || { concerns: [], positives: [], summary: '' },
+  }));
+
   return {
     meal_name,
     confidence,
@@ -69,6 +79,7 @@ function mergeZoneResults(zoneResults) {
       summary: summaries.join(' '),
     },
     zones_applied,
+    zone_results,
     analyzed_per_zone: true,
   };
 }

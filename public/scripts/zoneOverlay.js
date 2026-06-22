@@ -89,6 +89,7 @@ export function mountZoneOverlay(host, img, zones) {
   zones.forEach((zone) => {
     const box = document.createElement('div');
     box.className = 'zone-overlay-box';
+    box.dataset.zoneName = zone.name;
     box.style.left = `${zone.x * 100}%`;
     box.style.top = `${zone.y * 100}%`;
     box.style.width = `${zone.width * 100}%`;
@@ -102,4 +103,24 @@ export function mountZoneOverlay(host, img, zones) {
   });
 
   host.appendChild(layer);
+}
+
+export function highlightZoneOverlay(host, zoneName) {
+  if (!host) return;
+
+  const boxes = host.querySelectorAll('.zone-overlay-box');
+  if (!boxes.length) return;
+
+  if (!zoneName) {
+    boxes.forEach((box) => {
+      box.classList.remove('zone-overlay-box--active', 'zone-overlay-box--dimmed');
+    });
+    return;
+  }
+
+  boxes.forEach((box) => {
+    const isActive = box.dataset.zoneName === zoneName;
+    box.classList.toggle('zone-overlay-box--active', isActive);
+    box.classList.toggle('zone-overlay-box--dimmed', !isActive);
+  });
 }

@@ -1,6 +1,9 @@
 import { apiFetch, formatBytes, formatDate, showToast } from './utils.js';
-import { renderMealSummary } from './mealResults.js';
-import { mountZoneOverlay } from './zoneOverlay.js';
+import {
+  getActiveZoneName,
+  renderGalleryAnalysisPanel,
+} from './mealResults.js';
+import { mountZoneOverlay, highlightZoneOverlay } from './zoneOverlay.js';
 
 let allFiles = [];
 let filteredFiles = [];
@@ -98,15 +101,46 @@ function renderGrid() {
   });
 }
 
-function renderResultsPanel(file) {
+function renderResultsPanel(file, activeTabId = 'all') {
   const result = results[file.name];
   if (!result) {
     return '<p>No AI results yet. Process this file in the Processing tab.</p>';
   }
 
-  let html = `<p><strong>Processed:</strong> ${formatDate(result.processedAt)}</p>`;
-  html += renderMealSummary(result, { compact: true });
+  let html = `<p class="analysis-processed-at"><strong>Processed:</strong> ${formatDate(result.processedAt)}</p>`;
+  html += renderGalleryAnalysisPanel(result, appSettings.zones, activeTabId, file);
   return html;
+}
+
+function bindAnalysisTabs(lightbox, file) {
+  const result = results[file.name];
+  if (!result) return;
+
+  const analysisBody = lightbox.querySelector('.lightbox-analysis-body');
+  if (!analysisBody) return;
+
+  analysisBody.addEventListener('click', (event) => {
+    const tab = event.target.closest('[data-zone-tab]');
+    if (!tab || !analysisBody.contains(tab)) return;
+
+    const activeTabId = tab.dataset.zoneTab;
+    analysisBody.innerHTML = renderResultsPanel(file, activeTabId);
+
+    const highlightZone = getActiveZoneName(result, appSettings.zones, activeTabId);
+    highlightZoneOverlay(lightbox.querySelector('.lightbox-photo-host'), highlightZone);
+  });
+}
+
+function drawLightboxZones(lightbox) {
+  const img = lightbox.querySelector('.lightbox-photo-host img');
+  const host = lightbox.querySelector('.lightbox-photo-host');
+  if (!host || !img || !appSettings.zones?.length) return;
+
+  mountZoneOverlay(host, img, appSettings.zones);
+  const result = results[lightbox.dataset.filename];
+  if (result) {
+    highlightZoneOverlay(host, getActiveZoneName(result, appSettings.zones, 'all'));
+  }
 }
 
 function openLightbox(index) {
@@ -133,6 +167,7 @@ function openLightbox(index) {
 
   const lb = document.createElement('div');
   lb.className = 'lightbox';
+  lb.dataset.filename = file.name;
   lb.innerHTML = `
     <div class="lightbox-content">
       <button class="btn btn-ghost lightbox-close" aria-label="Close">✕</button>
@@ -144,24 +179,30 @@ function openLightbox(index) {
       ${zoneNote}
     </div>
     <aside class="lightbox-sidebar glass">
-      <h3>${file.name}</h3>
-      <p style="margin: 0.5rem 0; font-size: 0.875rem;">${formatBytes(file.size)} · ${formatDate(file.modified)}</p>
-      <hr style="border: none; border-top: 1px solid var(--color-border); margin: 1rem 0;">
-      <h4 style="margin-bottom: 0.5rem;">AI Results</h4>
-      ${renderResultsPanel(file)}
+      <div class="lightbox-sidebar-header">
+        <h3>${file.name}</h3>
+        <p class="lightbox-file-meta">${formatBytes(file.size)} · ${formatDate(file.modified)}</p>
+      </div>
+      <div class="lightbox-analysis">
+        <h4 class="lightbox-analysis-title">AI Analysis</h4>
+        <div class="lightbox-analysis-body">
+          ${renderResultsPanel(file)}
+        </div>
+      </div>
     </aside>`;
 
   document.body.appendChild(lb);
 
   if (file.type === 'image' && appSettings.zones?.length) {
+    const drawZones = () => drawLightboxZones(lb);
     const img = lb.querySelector('.lightbox-photo-host img');
-    const host = lb.querySelector('.lightbox-photo-host');
-    const drawZones = () => mountZoneOverlay(host, img, appSettings.zones);
     if (img.complete) drawZones();
     else img.addEventListener('load', drawZones);
     window.addEventListener('resize', drawZones, { once: false });
     lb._zoneResize = drawZones;
   }
+
+  bindAnalysisTabs(lb, file);
 
   lb.querySelector('.lightbox-close').addEventListener('click', closeLightbox);
   lb.querySelector('.lightbox-nav.prev')?.addEventListener('click', () => navigateLightbox(-1));
