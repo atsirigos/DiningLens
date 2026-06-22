@@ -67,7 +67,7 @@ router.post('/process', async (req, res) => {
 
   try {
     const settings = getSettings();
-    const result = await analyzeImage(filePath, settings, userContext);
+    const result = await analyzeImage(filePath, settings, userContext, { filename });
     result.processedAt = new Date().toISOString();
     result.filename = filename;
 

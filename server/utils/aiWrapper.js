@@ -3,9 +3,11 @@ const path = require('path');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Anthropic = require('@anthropic-ai/sdk');
 const { resolveApiKey, resolveModel } = require('./aiConfig');
+const { calculateCostUsd } = require('./aiPricing');
 const { SYSTEM_PROMPT, buildUserMessage } = require('../prompts/mealAnalysisPrompt');
 const { cropAllZones } = require('./zoneCropper');
 const { mergeZoneResults } = require('./mergeZoneResults');
+const { logApiCall } = require('../db/apiUsageStore');
 
 const MIME_TYPES = {
   '.jpg': 'image/jpeg',
@@ -40,6 +42,27 @@ function readImage(filePath) {
   return { mimeType, base64 };
 }
 
+function recordUsage({ provider, model, meta, usage, success, errorMessage }) {
+  const inputTokens = usage?.inputTokens || 0;
+  const outputTokens = usage?.outputTokens || 0;
+  const estimatedCostUsd = success
+    ? calculateCostUsd(model, inputTokens, outputTokens)
+    : 0;
+
+  logApiCall({
+    provider,
+    model,
+    filename: meta?.filename,
+    zoneName: meta?.zoneName,
+    inputTokens,
+    outputTokens,
+    totalTokens: usage?.totalTokens || inputTokens + outputTokens,
+    estimatedCostUsd,
+    success,
+    errorMessage,
+  });
+}
+
 async function analyzeWithGoogle(apiKey, modelId, mimeType, base64, userMessage) {
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({
@@ -57,7 +80,15 @@ async function analyzeWithGoogle(apiKey, modelId, mimeType, base64, userMessage)
     },
   ]);
 
-  return result.response.text();
+  const usageMeta = result.response.usageMetadata || {};
+  return {
+    text: result.response.text(),
+    usage: {
+      inputTokens: usageMeta.promptTokenCount || 0,
+      outputTokens: usageMeta.candidatesTokenCount || 0,
+      totalTokens: usageMeta.totalTokenCount || 0,
+    },
+  };
 }
 
 async function analyzeWithAnthropic(apiKey, modelId, mimeType, base64, userMessage) {
@@ -93,10 +124,17 @@ async function analyzeWithAnthropic(apiKey, modelId, mimeType, base64, userMessa
     throw new Error('No text response from Anthropic');
   }
 
-  return textBlock.text;
+  return {
+    text: textBlock.text,
+    usage: {
+      inputTokens: message.usage?.input_tokens || 0,
+      outputTokens: message.usage?.output_tokens || 0,
+      totalTokens: (message.usage?.input_tokens || 0) + (message.usage?.output_tokens || 0),
+    },
+  };
 }
 
-async function analyzeImageData(base64, mimeType, settings, userContext) {
+async function analyzeImageData(base64, mimeType, settings, userContext, meta = {}) {
   const provider = settings?.ai?.provider || 'google';
 
   const apiKey = resolveApiKey(settings);
@@ -108,27 +146,52 @@ async function analyzeImageData(base64, mimeType, settings, userContext) {
   const userMessage = buildUserMessage(userContext);
 
   let text;
-  switch (provider) {
-    case 'google':
-      text = await analyzeWithGoogle(apiKey, modelId, mimeType, base64, userMessage);
-      break;
-    case 'anthropic':
-      text = await analyzeWithAnthropic(apiKey, modelId, mimeType, base64, userMessage);
-      break;
-    default:
-      throw new Error(`Provider "${provider}" is not supported`);
-  }
+  let usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 
-  const parsed = parseJsonResponse(text);
-  return validateMealResult(parsed);
+  try {
+    switch (provider) {
+      case 'google': {
+        const response = await analyzeWithGoogle(apiKey, modelId, mimeType, base64, userMessage);
+        text = response.text;
+        usage = response.usage;
+        break;
+      }
+      case 'anthropic': {
+        const response = await analyzeWithAnthropic(apiKey, modelId, mimeType, base64, userMessage);
+        text = response.text;
+        usage = response.usage;
+        break;
+      }
+      default:
+        throw new Error(`Provider "${provider}" is not supported`);
+    }
+
+    recordUsage({ provider, model: modelId, meta, usage, success: true });
+
+    const parsed = parseJsonResponse(text);
+    return validateMealResult(parsed);
+  } catch (err) {
+    recordUsage({
+      provider,
+      model: modelId,
+      meta,
+      usage,
+      success: false,
+      errorMessage: err.message,
+    });
+    throw err;
+  }
 }
 
-async function analyzeImage(filePath, settings, userContext) {
+async function analyzeImage(filePath, settings, userContext, meta = {}) {
+  const filename = meta.filename || path.basename(filePath);
+  const callMeta = { filename, zoneName: meta.zoneName };
+
   const zones = (settings?.zones || []).filter((z) => z?.name);
 
   if (zones.length === 0) {
     const { mimeType, base64 } = readImage(filePath);
-    return analyzeImageData(base64, mimeType, settings, userContext);
+    return analyzeImageData(base64, mimeType, settings, userContext, callMeta);
   }
 
   const crops = await cropAllZones(filePath, zones);
@@ -138,7 +201,13 @@ async function analyzeImage(filePath, settings, userContext) {
 
   const zoneResults = [];
   for (const { zone, image } of crops) {
-    const result = await analyzeImageData(image.base64, image.mimeType, settings, userContext);
+    const result = await analyzeImageData(
+      image.base64,
+      image.mimeType,
+      settings,
+      userContext,
+      { filename, zoneName: zone.name },
+    );
     zoneResults.push({ zoneName: zone.name, result });
   }
 

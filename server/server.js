@@ -7,6 +7,7 @@ require('dotenv').config();
 const filesRouter = require('./routes/files');
 const settingsRouter = require('./routes/settings');
 const processRouter = require('./routes/process');
+const usageRouter = require('./routes/usage');
 const { getDb } = require('./db/database');
 
 const ROOT = path.join(__dirname, '..');
@@ -39,6 +40,7 @@ app.use(express.static(path.join(ROOT, 'public')));
 app.use('/api', filesRouter);
 app.use('/api', settingsRouter);
 app.use('/api', processRouter);
+app.use('/api', usageRouter);
 
 app.listen(PORT, () => {
   console.log(`SmartDining server running at http://localhost:${PORT}`);
