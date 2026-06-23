@@ -21,14 +21,49 @@ function parseJsonResponse(text) {
   return JSON.parse(cleaned);
 }
 
-function validateMealResult(parsed) {
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error('Invalid meal analysis response');
+function normalizeItem(item) {
+  const name = String(item?.name || '').trim();
+  if (!name) return null;
+
+  const estimated_weight_grams = Number(item.estimated_weight_grams);
+  if (!Number.isFinite(estimated_weight_grams) || estimated_weight_grams <= 0) {
+    throw new Error(`Item "${name}" must have estimated_weight_grams > 0`);
   }
-  if (!parsed.meal_name || !Array.isArray(parsed.items) || !parsed.totals) {
+
+  const normalized = {
+    name,
+    estimated_weight_grams,
+    is_composite: Boolean(item.is_composite),
+  };
+
+  if (item.count != null && item.count !== '') {
+    const count = Number(item.count);
+    if (Number.isFinite(count) && count > 0) {
+      normalized.count = count;
+    }
+  }
+
+  return normalized;
+}
+
+function validateMealResult(parsed) {
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.items)) {
     throw new Error('Meal analysis response is missing required fields');
   }
-  return parsed;
+
+  if (parsed.items.length === 0) {
+    throw new Error('No food items identified');
+  }
+
+  const items = parsed.items.map(normalizeItem).filter(Boolean);
+  if (items.length === 0) {
+    throw new Error('No valid food items in response');
+  }
+
+  return {
+    items,
+    schema_version: 2,
+  };
 }
 
 function readImage(filePath) {

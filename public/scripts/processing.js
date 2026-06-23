@@ -51,6 +51,7 @@ function render() {
         <p style="font-size: 0.875rem; margin: 0;">
           <strong>${zoneCount} zone${zoneCount === 1 ? '' : 's'}</strong> configured.
           Each photo is cropped per zone and analyzed with a <strong>separate API call</strong> per zone.
+          Results list visible foods with estimated weights (USDA lookup planned).
         </p>
         <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0.35rem 0 0;">
           ${appSettings.zones.map((z) => z.name).join(' · ')}

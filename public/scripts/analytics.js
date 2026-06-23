@@ -1,5 +1,5 @@
 import { apiFetch, parseFilenameDate, showToast } from './utils.js';
-import { normalizeResultForAnalytics } from './mealResults.js';
+import { normalizeResultForAnalytics, formatWeight } from './mealResults.js';
 
 let results = {};
 let charts = [];
@@ -18,59 +18,44 @@ function destroyCharts() {
 function computeAggregates() {
   const entries = Object.entries(results);
   const foodFreq = {};
-  const calorieTimeline = {};
-  const confidenceCounts = { High: 0, Medium: 0, Low: 0 };
-  const macroTotals = { protein: 0, carbs: 0, fat: 0, count: 0 };
+  const weightTimeline = {};
+  const typeCounts = { food: 0, legacy: 0, macro: 0 };
+  let compositeItems = 0;
 
   for (const [filename, result] of entries) {
     const normalized = normalizeResultForAnalytics(result);
     const date = parseFilenameDate(filename) || new Date(result.processedAt);
     const dateKey = date.toISOString().split('T')[0];
 
-    if (normalized.type === 'meal' && normalized.totals) {
-      calorieTimeline[dateKey] = (calorieTimeline[dateKey] || 0) + (normalized.totals.calories || 0);
-      macroTotals.protein += normalized.totals.protein_g || 0;
-      macroTotals.carbs += normalized.totals.carbs_total_g || 0;
-      macroTotals.fat += normalized.totals.fat_total_g || 0;
-      macroTotals.count += 1;
+    typeCounts[normalized.type] = (typeCounts[normalized.type] || 0) + 1;
 
-      const conf = normalized.confidence || 'Low';
-      if (confidenceCounts[conf] !== undefined) {
-        confidenceCounts[conf] += 1;
-      } else {
-        confidenceCounts.Low += 1;
-      }
+    if (normalized.type === 'food' && normalized.totalWeight) {
+      weightTimeline[dateKey] = (weightTimeline[dateKey] || 0) + normalized.totalWeight;
     }
 
     for (const item of normalized.items) {
       const name = item.name;
       if (name) foodFreq[name] = (foodFreq[name] || 0) + 1;
+      if (item.is_composite) compositeItems += 1;
     }
   }
 
-  const macroAverages = macroTotals.count
-    ? {
-        protein: macroTotals.protein / macroTotals.count,
-        carbs: macroTotals.carbs / macroTotals.count,
-        fat: macroTotals.fat / macroTotals.count,
-      }
-    : { protein: 0, carbs: 0, fat: 0 };
-
-  return { entries, foodFreq, calorieTimeline, confidenceCounts, macroAverages };
+  return { entries, foodFreq, weightTimeline, typeCounts, compositeItems };
 }
 
 function computeStats(agg) {
-  const { entries, foodFreq, calorieTimeline } = agg;
+  const { entries, foodFreq, weightTimeline, compositeItems } = agg;
   const foods = Object.keys(foodFreq);
   const mostCommon = foods.sort((a, b) => foodFreq[b] - foodFreq[a])[0] || '—';
-  const dates = Object.keys(calorieTimeline).sort();
-  const totalCalories = Object.values(calorieTimeline).reduce((s, v) => s + v, 0);
+  const dates = Object.keys(weightTimeline).sort();
+  const totalWeight = Object.values(weightTimeline).reduce((s, v) => s + v, 0);
 
   return {
     totalMeals: entries.length,
     uniqueFoods: foods.length,
     mostCommon,
-    totalCalories: Math.round(totalCalories),
+    totalWeight: formatWeight(totalWeight),
+    compositeItems,
     dateRange: dates.length ? `${dates[0]} → ${dates[dates.length - 1]}` : '—',
   };
 }
@@ -80,7 +65,7 @@ function renderStats(stats) {
     <div class="stats-grid">
       <div class="card stat-card glass">
         <div class="stat-value">${stats.totalMeals}</div>
-        <div class="stat-label">Meals Processed</div>
+        <div class="stat-label">Photos Processed</div>
       </div>
       <div class="card stat-card glass">
         <div class="stat-value">${stats.uniqueFoods}</div>
@@ -91,8 +76,8 @@ function renderStats(stats) {
         <div class="stat-label">Most Common Item</div>
       </div>
       <div class="card stat-card glass">
-        <div class="stat-value">${stats.totalCalories}</div>
-        <div class="stat-label">Total Calories</div>
+        <div class="stat-value" style="font-size: 1.25rem;">${stats.totalWeight}</div>
+        <div class="stat-label">Total Visible Weight</div>
       </div>
     </div>`;
 }
@@ -105,16 +90,12 @@ function renderCharts() {
         <div class="chart-container"><canvas id="chart-foods"></canvas></div>
       </div>
       <div class="card chart-card glass">
-        <h3>Calorie Timeline</h3>
-        <div class="chart-container"><canvas id="chart-calories"></canvas></div>
+        <h3>Estimated Weight Timeline</h3>
+        <div class="chart-container"><canvas id="chart-weight"></canvas></div>
       </div>
       <div class="card chart-card glass">
-        <h3>Average Macros per Meal</h3>
-        <div class="chart-container"><canvas id="chart-macros"></canvas></div>
-      </div>
-      <div class="card chart-card glass">
-        <h3>Confidence Breakdown</h3>
-        <div class="chart-container"><canvas id="chart-confidence"></canvas></div>
+        <h3>Result Format Mix</h3>
+        <div class="chart-container"><canvas id="chart-formats"></canvas></div>
       </div>
     </div>`;
 }
@@ -152,9 +133,9 @@ function createFoodChart(foodFreq) {
   }));
 }
 
-function createCalorieChart(calorieTimeline) {
-  const sorted = Object.entries(calorieTimeline).sort((a, b) => a[0].localeCompare(b[0]));
-  const ctx = document.getElementById('chart-calories');
+function createWeightChart(weightTimeline) {
+  const sorted = Object.entries(weightTimeline).sort((a, b) => a[0].localeCompare(b[0]));
+  const ctx = document.getElementById('chart-weight');
   if (!ctx || sorted.length === 0) return;
 
   charts.push(new Chart(ctx, {
@@ -162,7 +143,7 @@ function createCalorieChart(calorieTimeline) {
     data: {
       labels: sorted.map(([d]) => d),
       datasets: [{
-        label: 'Calories (kcal)',
+        label: 'Visible weight (g)',
         data: sorted.map(([, v]) => Math.round(v)),
         borderColor: ACCENT_COLORS[2],
         backgroundColor: 'rgba(13, 148, 136, 0.12)',
@@ -174,43 +155,24 @@ function createCalorieChart(calorieTimeline) {
   }));
 }
 
-function createMacroChart(macroAverages) {
-  const ctx = document.getElementById('chart-macros');
-  if (!ctx || !macroAverages) return;
-
-  charts.push(new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: ['Protein', 'Carbs', 'Fat'],
-      datasets: [{
-        label: 'Grams (avg)',
-        data: [
-          macroAverages.protein,
-          macroAverages.carbs,
-          macroAverages.fat,
-        ],
-        backgroundColor: [ACCENT_COLORS[0], ACCENT_COLORS[1], ACCENT_COLORS[3]],
-        borderRadius: 6,
-      }],
-    },
-    options: chartOptions(),
-  }));
-}
-
-function createConfidenceChart(confidenceCounts) {
-  const ctx = document.getElementById('chart-confidence');
+function createFormatChart(typeCounts) {
+  const ctx = document.getElementById('chart-formats');
   if (!ctx) return;
 
-  const total = Object.values(confidenceCounts).reduce((s, v) => s + v, 0);
-  if (total === 0) return;
+  const data = [
+    typeCounts.food || 0,
+    typeCounts.macro || 0,
+    typeCounts.legacy || 0,
+  ];
+  if (data.every((value) => value === 0)) return;
 
   charts.push(new Chart(ctx, {
     type: 'doughnut',
     data: {
-      labels: ['High', 'Medium', 'Low'],
+      labels: ['Food recognition', 'Legacy macros', 'Legacy zones'],
       datasets: [{
-        data: [confidenceCounts.High, confidenceCounts.Medium, confidenceCounts.Low],
-        backgroundColor: ['#059669', '#d97706', '#dc2626'],
+        data,
+        backgroundColor: ['#059669', '#d97706', '#64748b'],
       }],
     },
     options: {
@@ -260,9 +222,8 @@ function render() {
   document.getElementById('export-btn')?.addEventListener('click', exportResults);
 
   createFoodChart(agg.foodFreq);
-  createCalorieChart(agg.calorieTimeline);
-  createMacroChart(agg.macroAverages);
-  createConfidenceChart(agg.confidenceCounts);
+  createWeightChart(agg.weightTimeline);
+  createFormatChart(agg.typeCounts);
 }
 
 export async function init() {

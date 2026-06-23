@@ -158,51 +158,31 @@ function validateMealResultDetailed(result) {
     return { issues, warnings };
   }
 
-  const requiredTop = ['meal_name', 'confidence', 'confidence_notes', 'items', 'totals', 'health_insights'];
-  for (const key of requiredTop) {
-    if (result[key] === undefined || result[key] === null) {
-      issues.push(`Missing top-level field: ${key}`);
-    }
-  }
-
   if (!Array.isArray(result.items)) {
     issues.push('items must be an array');
-  } else if (result.items.length === 0) {
+    return { issues, warnings };
+  }
+
+  if (result.items.length === 0) {
     warnings.push('items array is empty — no foods identified');
   } else {
     result.items.forEach((item, i) => {
       const prefix = `items[${i}]`;
       if (!item.name) issues.push(`${prefix}: missing name`);
-      const numericFields = [
-        'calories', 'protein_g', 'fat_total_g', 'fat_saturated_g',
-        'carbs_total_g', 'fiber_g', 'sugars_g', 'sodium_mg',
-      ];
-      for (const field of numericFields) {
-        if (typeof item[field] !== 'number' || Number.isNaN(item[field])) {
-          warnings.push(`${prefix}: ${field} is not a valid number`);
-        }
+      if (typeof item.estimated_weight_grams !== 'number' || item.estimated_weight_grams <= 0) {
+        issues.push(`${prefix}: estimated_weight_grams must be a number > 0`);
       }
-      if (item.flagged && !item.flag_reason) {
-        warnings.push(`${prefix}: flagged but no flag_reason`);
+      if (item.is_composite != null && typeof item.is_composite !== 'boolean') {
+        warnings.push(`${prefix}: is_composite should be boolean`);
+      }
+      if (item.count != null && (typeof item.count !== 'number' || item.count <= 0)) {
+        warnings.push(`${prefix}: count should be a positive number when provided`);
       }
     });
   }
 
-  if (result.totals && typeof result.totals === 'object') {
-    if (typeof result.totals.calories !== 'number') {
-      warnings.push('totals.calories is not a number');
-    }
-  }
-
-  if (result.health_insights && typeof result.health_insights === 'object') {
-    if (!Array.isArray(result.health_insights.concerns)) warnings.push('health_insights.concerns should be an array');
-    if (!Array.isArray(result.health_insights.positives)) warnings.push('health_insights.positives should be an array');
-    if (!result.health_insights.summary) warnings.push('health_insights.summary is empty');
-  }
-
-  const conf = (result.confidence || '').toLowerCase();
-  if (conf && !['high', 'medium', 'low'].includes(conf)) {
-    warnings.push(`confidence "${result.confidence}" is not High/Medium/Low`);
+  if (result.meal_name || result.totals || result.confidence) {
+    warnings.push('Response looks like the old macro-based schema — update the prompt if this persists');
   }
 
   return { issues, warnings };
@@ -327,10 +307,12 @@ async function analyzeOneImage(file, settings, context, verbose) {
     const elapsed = Date.now() - start;
 
     log.ok(`API call succeeded in ${elapsed}ms`);
-    log.info(`Meal: ${result.meal_name}`);
-    log.info(`Confidence: ${result.confidence}`);
     log.info(`Items: ${result.items?.length ?? 0}`);
-    log.info(`Total calories: ${result.totals?.calories ?? '—'}`);
+    const totalWeight = (result.items || []).reduce(
+      (sum, item) => sum + (Number(item.estimated_weight_grams) || 0),
+      0,
+    );
+    log.info(`Total visible weight: ${Math.round(totalWeight)} g`);
 
     const { issues, warnings } = validateMealResultDetailed(result);
     for (const w of warnings) log.warn(w);
