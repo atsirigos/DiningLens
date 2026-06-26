@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Table-Cam Capture Rig — Schematic</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F9FB;
+    --bg-panel:#FFFFFF;
+    --grid:rgba(21,94,107,0.10);
+    --line-core:#15616D;
+    --line-temp:#B5650F;
+    --text:#16232C;
+    --text-dim:#4A6072;
+    --node-bg:#EAF3F6;
+    --node-border:#4C7E8F;
+    --node-border-hover:#15616D;
+    --node-border-temp:#B5650F;
+    --table-fill:#E3EEF1;
+    --mono:'IBM Plex Mono', monospace;
+    --sans:'IBM Plex Sans', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    background-image:
+      repeating-linear-gradient(0deg, var(--grid) 0 1px, transparent 1px 40px),
+      repeating-linear-gradient(90deg, var(--grid) 0 1px, transparent 1px 40px);
+    color:var(--text);
+    font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;
+  }
+  .page{max-width:1100px;margin:0 auto;padding:28px 20px 60px;}
+  .masthead{margin-bottom:22px;}
+  .fig{font-family:var(--mono);font-size:11px;letter-spacing:2px;color:var(--line-core);}
+  h1{font-size:clamp(22px,3vw,30px);font-weight:600;margin:6px 0 8px;letter-spacing:.2px;}
+  .sub{color:var(--text-dim);font-size:13.5px;max-width:640px;line-height:1.5;margin:0;}
+  .sub b{color:var(--line-temp);font-weight:600;}
+
+  .layout{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;margin-top:22px;}
+  .schem-wrap{flex:1 1 580px;min-width:300px;background:var(--bg-panel);border:1px solid var(--node-border);border-radius:6px;padding:10px;}
+  .schem{width:100%;height:auto;display:block;}
+
+  .panel{flex:0 0 280px;min-width:260px;background:var(--bg-panel);border:1px solid var(--node-border);border-radius:6px;padding:18px;position:sticky;top:20px;min-height:280px;}
+  @media (max-width:760px){.panel{position:static;flex-basis:100%;}}
+
+  .hint{color:var(--text-dim);font-size:13.5px;line-height:1.5;margin:0;}
+  .pd-tag{font-family:var(--mono);font-size:11px;letter-spacing:1px;color:var(--line-core);}
+  .pd-tag.temp{color:var(--line-temp);}
+  .panel h3{font-size:17px;margin:6px 0 10px;font-weight:600;}
+  .pd-desc{font-size:13.5px;line-height:1.55;color:var(--text);margin:0 0 14px;}
+  .pd-specs{border-top:1px solid var(--node-border);border-bottom:1px solid var(--node-border);padding:8px 0;margin-bottom:14px;}
+  .spec-row{display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:3px 0;}
+  .spec-row span:first-child{color:var(--text-dim);}
+  .spec-row span:last-child{font-family:var(--mono);text-align:right;}
+  .pd-price{font-size:13.5px;margin-bottom:14px;}
+  .pd-price strong{font-family:var(--mono);color:var(--line-core);}
+  .pd-link{display:inline-block;font-size:13px;font-weight:600;color:var(--bg);background:var(--line-core);padding:9px 14px;border-radius:4px;text-decoration:none;transition:filter .15s;}
+  .pd-link:hover{filter:brightness(1.1);}
+  .pd-link.temp{background:var(--line-temp);}
+
+  .part{cursor:pointer;}
+  .part rect,.part polygon,.part circle{fill:var(--node-bg);stroke:var(--node-border);stroke-width:1.5;transition:stroke .15s, filter .15s;}
+  .part.temp rect,.part.temp polygon,.part.temp circle{stroke-dasharray:5 4;stroke:var(--node-border-temp);}
+  .part:hover rect,.part:hover polygon,.part:hover circle{stroke:var(--node-border-hover);filter:drop-shadow(0 0 4px rgba(94,200,216,.55));}
+  .part.temp:hover rect,.part.temp:hover polygon,.part.temp:hover circle{filter:drop-shadow(0 0 4px rgba(232,163,61,.55));}
+  .part.selected rect,.part.selected polygon,.part.selected circle{stroke-width:2.5;filter:drop-shadow(0 0 6px rgba(94,200,216,.75));}
+  .part.temp.selected rect,.part.temp.selected polygon,.part.temp.selected circle{filter:drop-shadow(0 0 6px rgba(232,163,61,.75));}
+  .part:focus-visible{outline:none;}
+  .part:focus-visible rect,.part:focus-visible polygon,.part:focus-visible circle{stroke:var(--line-core);stroke-width:2.5;}
+
+  text{user-select:none;}
+  .designator{font-family:var(--mono);font-size:12.5px;font-weight:600;fill:var(--text);}
+  .designator.sm{font-size:9.5px;}
+  .pname{font-family:var(--sans);font-size:10px;fill:var(--text-dim);}
+  .glabel{font-family:var(--mono);font-size:11px;fill:var(--text-dim);}
+  .tag{font-family:var(--mono);font-size:8.5px;fill:var(--line-temp);letter-spacing:.4px;}
+  .ctxlabel{font-family:var(--mono);font-size:10px;fill:var(--text-dim);letter-spacing:.5px;}
+
+  .trace{stroke:var(--line-core);stroke-width:1.5;fill:none;}
+  .trace.temp{stroke:var(--line-temp);stroke-width:1.5;stroke-dasharray:6 4;fill:none;}
+  .fov{stroke:rgba(21,94,107,.35);stroke-width:1;fill:none;stroke-dasharray:3 4;}
+  .ceiling{stroke:var(--text-dim);stroke-width:1.5;}
+  .hatch{stroke:var(--text-dim);stroke-width:1;opacity:.5;}
+
+  .bom{margin-top:36px;border-top:1px solid var(--node-border);padding-top:20px;}
+  .bom h2{font-size:15px;letter-spacing:1px;color:var(--text-dim);text-transform:uppercase;margin:0 0 14px;font-weight:600;}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  th{text-align:left;color:var(--text-dim);font-size:11px;letter-spacing:.5px;text-transform:uppercase;font-weight:600;padding:6px 8px;border-bottom:1px solid var(--node-border);}
+  td{padding:9px 8px;border-bottom:1px solid rgba(47,110,130,.35);vertical-align:middle;}
+  td.mono{font-family:var(--mono);}
+  td.right{text-align:right;}
+  .tagsmall{font-family:var(--mono);font-size:9.5px;color:var(--line-temp);border:1px solid var(--line-temp);border-radius:3px;padding:1px 4px;margin-left:6px;}
+  table a{color:var(--line-core);text-decoration:none;font-weight:600;font-size:13px;}
+  table a:hover{text-decoration:underline;}
+  .total{font-family:var(--mono);font-size:14px;margin:14px 8px 0;color:var(--line-core);}
+
+  @media (prefers-reduced-motion:reduce){
+    .part rect,.part polygon,.part circle,.pd-link{transition:none;}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="masthead">
+    <div class="fig">FIG. 1</div>
+    <h1>Table-Cam Capture Rig — Manual-Trigger Build</h1>
+    <p class="sub">Click any component for specs and an Amazon search link. <b>Dashed amber</b> marks the temporary push-button trigger — swap it for the load-cell sensor later with no changes to the rest of the rig.</p>
+  </header>
+
+  <div class="layout">
+    <div class="schem-wrap">
+      <svg class="schem" viewBox="0 0 800 600" role="img" aria-label="Schematic of the ceiling-mounted camera rig over the dining table">
+
+        <!-- Ceiling -->
+        <line x1="40" y1="14" x2="760" y2="14" class="ceiling"/>
+        <line x1="55" y1="14" x2="45" y2="24" class="hatch"/>
+        <line x1="95" y1="14" x2="85" y2="24" class="hatch"/>
+        <line x1="135" y1="14" x2="125" y2="24" class="hatch"/>
+        <line x1="175" y1="14" x2="165" y2="24" class="hatch"/>
+        <line x1="615" y1="14" x2="605" y2="24" class="hatch"/>
+        <line x1="655" y1="14" x2="645" y2="24" class="hatch"/>
+        <line x1="695" y1="14" x2="685" y2="24" class="hatch"/>
+        <line x1="735" y1="14" x2="725" y2="24" class="hatch"/>
+
+        <!-- MNT-1 mount bracket -->
+        <g class="part" data-id="mnt1" tabindex="0" role="button" aria-label="MNT-1 mini ball head mount">
+          <polygon points="300,14 340,14 330,40 310,40"/>
+        </g>
+        <text class="glabel" x="346" y="30">MNT-1</text>
+
+        <!-- ENC-1 enclosure -->
+        <g class="part" data-id="enc1" tabindex="0" role="button" aria-label="ENC-1 vented project enclosure">
+          <rect x="60" y="40" width="520" height="230" rx="8"/>
+        </g>
+        <text class="designator" x="75" y="58">ENC-1</text>
+        <text class="pname" x="75" y="72">ceiling enclosure</text>
+
+        <!-- COOL-1 -->
+        <g class="part" data-id="cool1" tabindex="0" role="button" aria-label="COOL-1 active cooler">
+          <rect x="140" y="92" width="70" height="20" rx="3"/>
+        </g>
+        <text class="designator sm" x="151" y="105">COOL-1</text>
+
+        <!-- PI-1 -->
+        <g class="part" data-id="pi1" tabindex="0" role="button" aria-label="PI-1 Raspberry Pi 5">
+          <rect x="100" y="110" width="160" height="70" rx="5"/>
+        </g>
+        <text class="designator" x="114" y="138">PI-1</text>
+        <text class="pname" x="114" y="154">Raspberry Pi 5</text>
+        <text class="pname" x="114" y="167">8GB</text>
+
+        <!-- SD-1 -->
+        <g class="part" data-id="sd1" tabindex="0" role="button" aria-label="SD-1 microSD card">
+          <rect x="264" y="138" width="28" height="22" rx="3"/>
+        </g>
+        <text class="designator sm" x="269" y="153">SD-1</text>
+
+        <!-- CBL-1 trace + marker -->
+        <path class="trace" d="M260,145 L320,145 L320,127 L370,127"/>
+        <g class="part" data-id="cbl1" tabindex="0" role="button" aria-label="CBL-1 CSI camera cable">
+          <circle cx="320" cy="136" r="7"/>
+        </g>
+        <text class="glabel" x="288" y="170">CBL-1</text>
+
+        <!-- CAM-1 -->
+        <g class="part" data-id="cam1" tabindex="0" role="button" aria-label="CAM-1 Arducam 64MP camera module">
+          <rect x="370" y="100" width="150" height="55" rx="5"/>
+        </g>
+        <text class="designator" x="384" y="122">CAM-1</text>
+        <text class="pname" x="384" y="137">Arducam 64MP</text>
+
+        <!-- lens + FOV (part of CAM-1) -->
+        <line x1="445" y1="155" x2="445" y2="300" class="trace"/>
+        <circle cx="445" cy="270" r="4" fill="var(--bg-panel)" stroke="var(--node-border)" stroke-width="0.5"/>
+        <g class="part" data-id="cam1" tabindex="0" role="button" aria-label="CAM-1 lens">
+          <circle cx="445" cy="300" r="11"/>
+        </g>
+        <line x1="445" y1="311" x2="190" y2="520" class="fov"/>
+        <line x1="445" y1="311" x2="700" y2="520" class="fov"/>
+
+        <!-- PSU-1 -->
+        <path class="trace" d="M130,180 L130,300 L85,300 L85,330"/>
+        <g class="part" data-id="psu1" tabindex="0" role="button" aria-label="PSU-1 27 watt USB-C power supply">
+          <rect x="20" y="330" width="130" height="55" rx="5"/>
+        </g>
+        <text class="designator" x="34" y="354">PSU-1</text>
+        <text class="pname" x="34" y="369">27W USB-C PSU</text>
+
+        <!-- WIRE-1 + SW-1 (temp) -->
+        <path class="trace temp" d="M260,180 L260,420 L700,420 L700,460"/>
+        <g class="part temp" data-id="wire1" tabindex="0" role="button" aria-label="WIRE-1 hookup wire, temporary">
+          <circle cx="480" cy="420" r="7"/>
+        </g>
+        <text class="tag" x="455" y="408">WIRE-1 · TEMP</text>
+
+        <g class="part temp" data-id="sw1" tabindex="0" role="button" aria-label="SW-1 momentary push button, temporary trigger">
+          <rect x="640" y="460" width="120" height="50" rx="5"/>
+        </g>
+        <text class="designator" x="654" y="482">SW-1</text>
+        <text class="pname" x="654" y="497">push button</text>
+        <text class="tag" x="654" y="508">TEMP</text>
+
+        <!-- LED-1 -->
+        <g class="part" data-id="led1" tabindex="0" role="button" aria-label="LED-1 dimmable LED puck light">
+          <circle cx="180" cy="498" r="14"/>
+        </g>
+        <text class="glabel" x="155" y="475">LED-1</text>
+
+        <!-- Table -->
+        <rect x="150" y="520" width="500" height="26" rx="4" class="tablefill" fill="var(--table-fill)" stroke="var(--node-border)" stroke-width="1"/>
+        <circle cx="280" cy="533" r="7" fill="none" stroke="var(--text-dim)" stroke-width="1"/>
+        <circle cx="400" cy="533" r="7" fill="none" stroke="var(--text-dim)" stroke-width="1"/>
+        <circle cx="520" cy="533" r="7" fill="none" stroke="var(--text-dim)" stroke-width="1"/>
+        <text class="ctxlabel" x="400" y="568" text-anchor="middle">DINING TABLE</text>
+
+      </svg>
+    </div>
+
+    <aside class="panel" id="panel">
+      <div id="panelInner">
+        <p class="hint">Select a component in the schematic, or scroll down for the full parts list with Amazon links.</p>
+      </div>
+    </aside>
+  </div>
+
+  <section class="bom">
+    <h2>Bill of materials</h2>
+    <table>
+      <thead>
+        <tr><th>Part</th><th>Description</th><th style="text-align:right">Est. price</th><th>Buy</th></tr>
+      </thead>
+      <tbody id="bomBody"></tbody>
+    </table>
+    <p class="total" id="bomTotal"></p>
+  </section>
+
+</div>
+
+<script>
+  const PARTS_LIST = [
+    { id:'pi1', designator:'PI-1', name:'Raspberry Pi 5 (8GB)', temp:false,
+      desc:'Runs the capture script and reads the push-button trigger over GPIO. Swapping the button for the load-cell sensor later means changing what calls the capture function, not the function itself.',
+      specs:[['RAM','8GB'],['CPU','Cortex-A76 2.4GHz, quad-core'],['Ports','2× CSI, GPIO, USB-C power']],
+      priceLow:80, priceHigh:100, query:'Raspberry Pi 5 8GB' },
+
+    { id:'cam1', designator:'CAM-1', name:'Arducam 64MP Hawkeye (Autofocus)', temp:false,
+      desc:'Captures full-resolution stills of the table. At 64MP from ~2.5m, this resolves individual food items across the whole table at once, not just one plate.',
+      specs:[['Resolution','64MP (9152×6944)'],['Interface','CSI'],['Focus','Autofocus, M12 mount']],
+      priceLow:60, priceHigh:80, query:'Arducam 64MP Hawkeye autofocus Raspberry Pi' },
+
+    { id:'cbl1', designator:'CBL-1', name:'CSI Camera Cable (Pi 5 compatible)', temp:false,
+      desc:"Connects the camera to the Pi 5's CSI port. Pi 5 uses a different connector pinout than Pi 4 — order the Pi 5–specific cable, not the standard one.",
+      specs:[['Connector','22-pin to 15-pin FPC'],['Length','15–30cm']],
+      priceLow:5, priceHigh:10, query:'Raspberry Pi 5 camera cable 15 pin' },
+
+    { id:'cool1', designator:'COOL-1', name:'Active Cooler', temp:false,
+      desc:'Keeps the Pi 5 from thermal throttling once it runs 24/7 inside the mostly-sealed ceiling enclosure.',
+      specs:[['Type','Official active cooler'],['Includes','Heatsink + fan']],
+      priceLow:5, priceHigh:10, query:'Raspberry Pi 5 active cooler' },
+
+    { id:'sd1', designator:'SD-1', name:'microSD Card (128GB, High Endurance)', temp:false,
+      desc:'Stores the OS and every captured photo. High-endurance cards handle constant write cycles much better than a standard consumer card.',
+      specs:[['Capacity','128GB'],['Rating','A2/U3, high-endurance']],
+      priceLow:15, priceHigh:20, query:'microSD card 128GB high endurance' },
+
+    { id:'psu1', designator:'PSU-1', name:'Official 27W USB-C Power Supply', temp:false,
+      desc:'Pi 5 needs more power than earlier models, especially with the camera and cooler running. Underpowered third-party supplies cause random instability.',
+      specs:[['Output','5V/5A USB-C PD']],
+      priceLow:12, priceHigh:15, query:'Raspberry Pi 5 27W USB-C power supply' },
+
+    { id:'enc1', designator:'ENC-1', name:'Vented Project Enclosure', temp:false,
+      desc:'Houses the Pi and camera together at the ceiling, since the camera cable only runs 15–50cm. Vented so the cooler can actually move air.',
+      specs:[['Material','ABS plastic'],['Size','~150×100×50mm, lens cutout']],
+      priceLow:10, priceHigh:15, query:'vented electronics project box enclosure' },
+
+    { id:'mnt1', designator:'MNT-1', name:'Mini Ball-Head Mount', temp:false,
+      desc:'Lets you aim the camera at the table after the enclosure is already screwed to the ceiling, and re-aim later if needed.',
+      specs:[['Thread','1/4-20'],['Type','Adjustable ball head']],
+      priceLow:10, priceHigh:15, query:'mini ball head mount 1/4 20' },
+
+    { id:'sw1', designator:'SW-1', name:'Momentary Push Button', temp:true,
+      desc:'Temporary stand-in for the load-cell sensor — wired straight to a GPIO pin. Replace later without touching the capture code, just what triggers it.',
+      specs:[['Type','Normally-open'],['Style','Panel or arcade button']],
+      priceLow:5, priceHigh:10, query:'momentary push button switch arcade' },
+
+    { id:'wire1', designator:'WIRE-1', name:'Low-Voltage Hookup Wire', temp:true,
+      desc:"Extends the button down from the ceiling enclosure to wherever it's convenient to press. Low voltage, safe to run several meters.",
+      specs:[['Gauge','22–24 AWG'],['Conductors','2 minimum']],
+      priceLow:8, priceHigh:15, query:'22 AWG hookup wire 2 conductor' },
+
+    { id:'led1', designator:'LED-1', name:'Dimmable LED Puck Light', temp:false,
+      desc:"Keeps lighting on the table consistent regardless of time of day — important for food color and detail, since that's what the rig is actually resolving.",
+      specs:[['Power','Battery or USB'],['Color temp','~5000K daylight']],
+      priceLow:15, priceHigh:25, query:'dimmable LED puck light battery' },
+  ];
+
+  const PARTS = {};
+  PARTS_LIST.forEach(p => PARTS[p.id] = p);
+
+  function selectPart(id){
+    document.querySelectorAll('.part').forEach(el => el.classList.toggle('selected', el.dataset.id === id));
+    const p = PARTS[id];
+    const panel = document.getElementById('panelInner');
+    if(!p){ panel.innerHTML = '<p class="hint">Select a component in the schematic, or scroll down for the full parts list with Amazon links.</p>'; return; }
+    const specsHtml = p.specs.map(s => `<div class="spec-row"><span>${s[0]}</span><span>${s[1]}</span></div>`).join('');
+    panel.innerHTML = `
+      <span class="pd-tag${p.temp?' temp':''}">${p.designator}${p.temp?' · TEMPORARY':''}</span>
+      <h3>${p.name}</h3>
+      <p class="pd-desc">${p.desc}</p>
+      <div class="pd-specs">${specsHtml}</div>
+      <div class="pd-price">Est. price: <strong>$${p.priceLow}–$${p.priceHigh}</strong></div>
+      <a class="pd-link${p.temp?' temp':''}" href="https://www.amazon.com/s?k=${encodeURIComponent(p.query)}" target="_blank" rel="noopener">Search on Amazon →</a>
+    `;
+  }
+
+  const svg = document.querySelector('.schem');
+  svg.addEventListener('click', e => {
+    const g = e.target.closest('.part');
+    if(g) selectPart(g.dataset.id);
+  });
+  svg.addEventListener('keydown', e => {
+    if(e.key === 'Enter' || e.key === ' '){
+      const g = e.target.closest('.part');
+      if(g){ e.preventDefault(); selectPart(g.dataset.id); }
+    }
+  });
+
+  function buildBOM(){
+    const tbody = document.getElementById('bomBody');
+    let lowSum = 0, highSum = 0;
+    tbody.innerHTML = PARTS_LIST.map(p => {
+      lowSum += p.priceLow; highSum += p.priceHigh;
+      return `<tr>
+        <td class="mono">${p.designator}${p.temp?'<span class="tagsmall">TEMP</span>':''}</td>
+        <td>${p.name}</td>
+        <td class="mono right">$${p.priceLow}–$${p.priceHigh}</td>
+        <td><a href="https://www.amazon.com/s?k=${encodeURIComponent(p.query)}" target="_blank" rel="noopener">View →</a></td>
+      </tr>`;
+    }).join('');
+    document.getElementById('bomTotal').textContent = `Estimated total: $${lowSum}–$${highSum}`;
+  }
+  buildBOM();
+</script>
+</body>
+</html>
