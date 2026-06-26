@@ -1,7 +1,22 @@
 node_modules/
 .env
 .DS_Store
-processed/results.json
+
+# User meal photos & videos (local only)
+data/*
+!data/.gitkeep
+
+# Cached AI results
+processed/
+
+# Local test assets
+tests/
+
+# Windows junk
+Thumbs.db
+desktop.ini
+
+# Local SQLite database
 db/*.db
 db/*.db-wal
 db/*.db-shm
