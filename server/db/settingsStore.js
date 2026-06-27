@@ -5,17 +5,42 @@ const { DEFAULT_AI } = require('../utils/aiConfig');
 
 const LEGACY_SETTINGS_FILE = path.join(__dirname, '..', '..', 'settings.json');
 
+const DEFAULT_PHONE = {
+  adbPath: '',
+  address: '',
+  dcim: '/sdcard/DCIM/Camera',
+  shutterKeycodes: [27, 24],
+};
+
 const DEFAULTS = {
   zones: [],
   referenceImage: null,
   ai: { ...DEFAULT_AI },
+  phone: { ...DEFAULT_PHONE },
 };
+
+function normalizePhone(phone) {
+  const raw = phone || {};
+  const shutterKeycodes = Array.isArray(raw.shutterKeycodes) && raw.shutterKeycodes.length
+    ? raw.shutterKeycodes.map((k) => Number(k)).filter((k) => Number.isFinite(k))
+    : DEFAULT_PHONE.shutterKeycodes;
+
+  return {
+    adbPath: typeof raw.adbPath === 'string' ? raw.adbPath : DEFAULT_PHONE.adbPath,
+    address: typeof raw.address === 'string' ? raw.address : DEFAULT_PHONE.address,
+    dcim: typeof raw.dcim === 'string' && raw.dcim.trim()
+      ? raw.dcim.trim()
+      : DEFAULT_PHONE.dcim,
+    shutterKeycodes,
+  };
+}
 
 function normalize(settings) {
   return {
     zones: Array.isArray(settings?.zones) ? settings.zones : DEFAULTS.zones,
     referenceImage: settings?.referenceImage ?? DEFAULTS.referenceImage,
     ai: { ...DEFAULT_AI, ...settings?.ai },
+    phone: normalizePhone(settings?.phone),
   };
 }
 

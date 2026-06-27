@@ -8,6 +8,7 @@ const filesRouter = require('./routes/files');
 const settingsRouter = require('./routes/settings');
 const processRouter = require('./routes/process');
 const usageRouter = require('./routes/usage');
+const phoneRouter = require('./routes/phone');
 const { getDb } = require('./db/database');
 
 const ROOT = path.join(__dirname, '..');
@@ -36,11 +37,13 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(ROOT, 'public')));
+app.use('/captures', express.static(path.join(ROOT, 'captures')));
 
 app.use('/api', filesRouter);
 app.use('/api', settingsRouter);
 app.use('/api', processRouter);
 app.use('/api', usageRouter);
+app.use('/api', phoneRouter);
 
 app.listen(PORT, () => {
   console.log(`SmartDining server running at http://localhost:${PORT}`);

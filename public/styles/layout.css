@@ -1014,6 +1014,176 @@
   justify-content: flex-end;
 }
 
+/* Phone configuration wizard */
+.phone-wizard {
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.phone-notice {
+  background: #f8fafc;
+  border-color: var(--color-border);
+}
+
+.phone-notice p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.phone-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.phone-step-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.phone-step-header h3 {
+  flex: 1;
+  margin: 0;
+  font-size: 1rem;
+}
+
+.phone-step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: white;
+  font-size: 0.8rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.phone-step-desc {
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.phone-step-done {
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.phone-step-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.phone-hint {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  margin-top: 0.35rem;
+}
+
+.phone-details {
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.phone-details summary {
+  cursor: pointer;
+  color: var(--color-accent);
+  font-weight: 500;
+}
+
+.phone-instructions {
+  margin: 0.75rem 0 0;
+  padding-left: 1.25rem;
+  line-height: 1.6;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.phone-instructions li + li {
+  margin-top: 0.65rem;
+}
+
+.phone-step-result {
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.phone-inline-error {
+  color: var(--color-danger);
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+}
+
+.phone-inline-success {
+  color: var(--color-success, #16a34a);
+  font-size: 0.875rem;
+}
+
+.phone-connected {
+  border-color: rgba(34, 197, 94, 0.4);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.06), transparent);
+}
+
+.phone-connected-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.phone-connected-header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.phone-connected-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.phone-snap-status {
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.phone-snap-preview {
+  display: block;
+  max-width: 100%;
+  margin-top: 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+}
+
+.phone-inline-spinner {
+  display: inline-block;
+  width: 0.9rem;
+  height: 0.9rem;
+  vertical-align: -2px;
+  margin-right: 0.4rem;
+}
+
+.phone-section-title {
+  font-size: 0.875rem;
+  margin: 0 0 0.5rem;
+}
+
+.phone-devices-card {
+  margin-top: 0.25rem;
+}
+
 @media (max-width: 768px) {
   #sidebar {
     width: 64px;

@@ -38,6 +38,10 @@ router.post('/settings', (req, res) => {
         ...existing.ai,
         ...incoming.ai,
       },
+      phone: {
+        ...existing.phone,
+        ...incoming.phone,
+      },
     };
 
     const newKey = incoming.ai?.apiKey?.trim();

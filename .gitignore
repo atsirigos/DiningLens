@@ -9,6 +9,12 @@ data/*
 # Cached AI results
 processed/
 
+# Phone camera captures (local only)
+captures/
+
+# Android platform-tools (local install)
+platform-tools/
+
 # Local test assets
 tests/
 
