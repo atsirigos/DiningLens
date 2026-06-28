@@ -1184,6 +1184,241 @@
   margin-top: 0.25rem;
 }
 
+.recording-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.recording-notice p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.recording-section-title {
+  font-size: 0.95rem;
+  margin: 0 0 0.5rem;
+}
+
+.recording-section-desc {
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.recording-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.recording-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.recording-status-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.recording-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.recording-stat {
+  padding: 0.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-hover);
+}
+
+.recording-stat-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-bottom: 0.25rem;
+}
+
+.recording-stat-value {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.recording-progress-wrap {
+  margin-bottom: 1rem;
+}
+
+.recording-progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-bottom: 0.35rem;
+}
+
+.recording-progress-bar {
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--color-surface-hover);
+  overflow: hidden;
+}
+
+.recording-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-accent), var(--color-accent-2));
+  transition: width 0.3s ease;
+}
+
+.recording-meta {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.recording-inline-error {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  color: var(--color-danger, #e74c3c);
+}
+
+.recording-inline-note {
+  margin: 0 0 0.75rem;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.recording-playback-viewport {
+  position: relative;
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-hover);
+  overflow: hidden;
+}
+
+.recording-playback-frame {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+}
+
+.recording-playback-empty {
+  margin: 0;
+  padding: 2rem 1rem;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.recording-scrubber {
+  width: 100%;
+  margin: 0 0 0.75rem;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+.recording-scrubber:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.recording-playback-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.recording-speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.recording-speed select {
+  padding: 0.3rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.8rem;
+}
+
+.recording-playback-counter {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.recording-player {
+  width: 100%;
+  max-width: 720px;
+}
+
+.recording-lightbox-note {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.gallery-recording-thumb {
+  position: relative;
+  overflow: hidden;
+  display: block;
+}
+
+.gallery-recording-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.gallery-recording-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3rem;
+  height: 3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 1.1rem;
+  padding-left: 0.2rem;
+  pointer-events: none;
+}
+
+.gallery-recording-badge {
+  position: absolute;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 0.7rem;
+  pointer-events: none;
+}
+
 @media (max-width: 768px) {
   #sidebar {
     width: 64px;
@@ -1267,6 +1502,11 @@
   }
 
   .charts-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .recording-config-grid,
+  .recording-status-grid {
     grid-template-columns: 1fr;
   }
 }

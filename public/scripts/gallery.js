@@ -13,6 +13,41 @@ let lightboxIndex = -1;
 
 const container = () => document.getElementById('gallery-content');
 
+function groupFiles(files) {
+  const sessions = new Map();
+  const others = [];
+
+  for (const f of files) {
+    const parts = (f.path || f.name).split('/');
+    if (parts[0] === 'recordings' && parts.length >= 3 && f.type === 'image') {
+      const session = parts[1];
+      if (!sessions.has(session)) sessions.set(session, []);
+      sessions.get(session).push(f);
+    } else {
+      others.push(f);
+    }
+  }
+
+  const recordingEntries = [];
+  for (const [session, frames] of sessions) {
+    frames.sort((a, b) => new Date(a.modified) - new Date(b.modified) || a.name.localeCompare(b.name));
+    const totalSize = frames.reduce((sum, fr) => sum + (fr.size || 0), 0);
+    recordingEntries.push({
+      type: 'recording',
+      session,
+      name: `Recording ${session}`,
+      path: `recordings/${session}`,
+      frames,
+      frameCount: frames.length,
+      size: totalSize,
+      modified: frames[frames.length - 1]?.modified || new Date().toISOString(),
+    });
+  }
+
+  return [...recordingEntries, ...others]
+    .sort((a, b) => new Date(b.modified) - new Date(a.modified));
+}
+
 function renderSkeleton() {
   container().innerHTML = `
     <div class="gallery-grid">
@@ -43,7 +78,13 @@ function applyFilters() {
 
   filteredFiles = allFiles.filter((f) => {
     if (search && !f.name.toLowerCase().includes(search)) return false;
-    if (typeFilter !== 'all' && f.type !== typeFilter) return false;
+    if (typeFilter !== 'all') {
+      if (typeFilter === 'video') {
+        if (f.type !== 'video' && f.type !== 'recording') return false;
+      } else if (f.type !== typeFilter) {
+        return false;
+      }
+    }
 
     const modDate = f.modified.split('T')[0];
     if (dateFrom && modDate < dateFrom) return false;
@@ -70,6 +111,27 @@ function renderGrid() {
   }
 
   grid.innerHTML = filteredFiles.map((file, idx) => {
+    if (file.type === 'recording') {
+      const thumbSrc = file.frames[0]
+        ? `/api/file/${encodeURIComponent(file.frames[0].path)}`
+        : '';
+      return `
+        <div class="card gallery-card" data-index="${idx}" tabindex="0" role="button" aria-label="Play ${file.name}">
+          <div class="gallery-card-thumb gallery-recording-thumb">
+            ${thumbSrc ? `<img src="${thumbSrc}" alt="${file.name}" loading="lazy">` : ''}
+            <span class="gallery-recording-play" aria-hidden="true">▶</span>
+            <span class="gallery-recording-badge">🎬 ${file.frameCount} frame${file.frameCount === 1 ? '' : 's'}</span>
+          </div>
+          <div class="gallery-card-body">
+            <div class="gallery-card-name" title="${file.name}">${file.name}</div>
+            <div class="gallery-card-meta">
+              <span>${formatBytes(file.size)}</span>
+              <span class="badge badge-muted">Recording</span>
+            </div>
+          </div>
+        </div>`;
+    }
+
     const isProcessed = !!results[file.name];
     const thumbSrc = file.type === 'image'
       ? `/api/file/${encodeURIComponent(file.path || file.name)}`
@@ -143,18 +205,30 @@ function drawLightboxZones(lightbox) {
   }
 }
 
-function openLightbox(index) {
-  lightboxIndex = index;
-  const file = filteredFiles[index];
-  if (!file) return;
-
+function removeExistingLightbox() {
   const existing = document.querySelector('.lightbox');
   if (existing) {
     if (existing._zoneResize) {
       window.removeEventListener('resize', existing._zoneResize);
     }
+    if (existing._playbackTimer) {
+      clearInterval(existing._playbackTimer);
+    }
     existing.remove();
   }
+}
+
+function openLightbox(index) {
+  lightboxIndex = index;
+  const file = filteredFiles[index];
+  if (!file) return;
+
+  if (file.type === 'recording') {
+    openRecordingLightbox(index);
+    return;
+  }
+
+  removeExistingLightbox();
 
   const src = `/api/file/${encodeURIComponent(file.path || file.name)}`;
   const media = file.type === 'video'
@@ -212,10 +286,152 @@ function openLightbox(index) {
   document.addEventListener('keydown', handleLightboxKey);
 }
 
+function openRecordingLightbox(index) {
+  lightboxIndex = index;
+  const file = filteredFiles[index];
+  if (!file?.frames?.length) return;
+
+  removeExistingLightbox();
+
+  const frames = file.frames;
+  let frameIndex = 0;
+  let playing = false;
+  let fps = 5;
+
+  const lb = document.createElement('div');
+  lb.className = 'lightbox';
+  lb.dataset.filename = file.name;
+  lb.innerHTML = `
+    <div class="lightbox-content">
+      <button class="btn btn-ghost lightbox-close" aria-label="Close">✕</button>
+      ${filteredFiles.length > 1 ? `
+        <button class="btn btn-ghost lightbox-nav prev" aria-label="Previous">←</button>
+        <button class="btn btn-ghost lightbox-nav next" aria-label="Next">→</button>
+      ` : ''}
+      <div class="recording-player">
+        <div class="recording-playback-viewport">
+          <img class="recording-playback-frame rp-frame" alt="">
+        </div>
+        <input type="range" class="recording-scrubber rp-scrubber" min="0" max="${frames.length - 1}" value="0" step="1" aria-label="Playback position">
+        <div class="recording-playback-controls">
+          <button type="button" class="btn btn-ghost btn-sm rp-prev">‹ Prev</button>
+          <button type="button" class="btn btn-primary btn-sm rp-playpause">Play</button>
+          <button type="button" class="btn btn-ghost btn-sm rp-next">Next ›</button>
+          <span class="recording-playback-counter rp-counter">1 / ${frames.length}</span>
+          <label class="recording-speed">
+            <span>Speed</span>
+            <select class="rp-speed">
+              <option value="1">1 fps</option>
+              <option value="2">2 fps</option>
+              <option value="5" selected>5 fps</option>
+              <option value="10">10 fps</option>
+              <option value="20">20 fps</option>
+            </select>
+          </label>
+        </div>
+      </div>
+    </div>
+    <aside class="lightbox-sidebar glass">
+      <div class="lightbox-sidebar-header">
+        <h3>${file.name}</h3>
+        <p class="lightbox-file-meta">${file.frameCount} frames · ${formatBytes(file.size)} · ${formatDate(file.modified)}</p>
+      </div>
+      <div class="lightbox-analysis">
+        <p class="recording-lightbox-note">
+          Frames are stored in <code>data/${file.path}/</code>. Use the controls to play the captured sequence back as a hyperlapse.
+        </p>
+      </div>
+    </aside>`;
+
+  document.body.appendChild(lb);
+
+  const img = lb.querySelector('.rp-frame');
+  const scrubber = lb.querySelector('.rp-scrubber');
+  const counter = lb.querySelector('.rp-counter');
+  const playPause = lb.querySelector('.rp-playpause');
+
+  const frameMs = () => Math.max(50, Math.round(1000 / fps));
+
+  function showFrame() {
+    frameIndex = Math.max(0, Math.min(frameIndex, frames.length - 1));
+    img.src = `/api/file/${encodeURIComponent(frames[frameIndex].path)}`;
+    img.alt = `Frame ${frameIndex + 1}: ${frames[frameIndex].name}`;
+    counter.textContent = `${frameIndex + 1} / ${frames.length}`;
+    scrubber.value = String(frameIndex);
+    playPause.textContent = playing ? 'Pause' : 'Play';
+  }
+
+  function stop() {
+    playing = false;
+    if (lb._playbackTimer) {
+      clearInterval(lb._playbackTimer);
+      lb._playbackTimer = null;
+    }
+    playPause.textContent = 'Play';
+  }
+
+  function step() {
+    if (frameIndex < frames.length - 1) {
+      frameIndex += 1;
+      showFrame();
+    } else {
+      stop();
+    }
+  }
+
+  function play() {
+    if (frameIndex >= frames.length - 1) frameIndex = 0;
+    playing = true;
+    if (lb._playbackTimer) clearInterval(lb._playbackTimer);
+    lb._playbackTimer = setInterval(step, frameMs());
+    showFrame();
+  }
+
+  playPause.addEventListener('click', () => {
+    if (playing) stop();
+    else play();
+  });
+  lb.querySelector('.rp-prev').addEventListener('click', () => {
+    stop();
+    if (frameIndex > 0) {
+      frameIndex -= 1;
+      showFrame();
+    }
+  });
+  lb.querySelector('.rp-next').addEventListener('click', () => {
+    stop();
+    if (frameIndex < frames.length - 1) {
+      frameIndex += 1;
+      showFrame();
+    }
+  });
+  scrubber.addEventListener('input', (e) => {
+    stop();
+    frameIndex = Number(e.target.value) || 0;
+    showFrame();
+  });
+  lb.querySelector('.rp-speed').addEventListener('change', (e) => {
+    fps = Number(e.target.value) || 5;
+    if (playing) play();
+  });
+
+  showFrame();
+
+  lb.querySelector('.lightbox-close').addEventListener('click', closeLightbox);
+  lb.querySelector('.lightbox-nav.prev')?.addEventListener('click', () => navigateLightbox(-1));
+  lb.querySelector('.lightbox-nav.next')?.addEventListener('click', () => navigateLightbox(1));
+  lb.addEventListener('click', (e) => { if (e.target === lb) closeLightbox(); });
+
+  document.addEventListener('keydown', handleLightboxKey);
+}
+
 function closeLightbox() {
   const lb = document.querySelector('.lightbox');
   if (lb?._zoneResize) {
     window.removeEventListener('resize', lb._zoneResize);
+  }
+  if (lb?._playbackTimer) {
+    clearInterval(lb._playbackTimer);
   }
   lb?.remove();
   document.removeEventListener('keydown', handleLightboxKey);
@@ -257,7 +473,7 @@ async function loadData() {
       apiFetch('/api/results'),
       apiFetch('/api/settings'),
     ]);
-    allFiles = files;
+    allFiles = groupFiles(files);
     results = res;
     appSettings = settings;
     filteredFiles = [...allFiles];

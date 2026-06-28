@@ -176,7 +176,7 @@ async function waitForNewPhoto(serial, before, { tries = 8, delayMs = 600 } = {}
   return null;
 }
 
-async function takePhoto({ warmupMs = 2500 } = {}) {
+async function takePhoto({ warmupMs = 2500, destDir = CAPTURE_DIR } = {}) {
   const serial = await ensureConnected();
   const { dcim, shutterKeycodes } = getPhoneConfig();
 
@@ -198,8 +198,8 @@ async function takePhoto({ warmupMs = 2500 } = {}) {
     );
   }
 
-  await fs.mkdir(CAPTURE_DIR, { recursive: true });
-  const localPath = path.join(CAPTURE_DIR, file);
+  await fs.mkdir(destDir, { recursive: true });
+  const localPath = path.join(destDir, file);
   await adb(['-s', serial, 'pull', `${dcim}/${file}`, localPath], { timeout: 60000 });
 
   return { file, localPath };
