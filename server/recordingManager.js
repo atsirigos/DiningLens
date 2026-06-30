@@ -1,6 +1,6 @@
 const path = require('node:path');
 const fs = require('node:fs/promises');
-const { ensureConnected, takePhoto } = require('./androidCamera');
+const { ensureConnected, takePhoto, getActiveDevice } = require('./androidCamera');
 
 const ROOT = path.join(__dirname, '..');
 const DATA_DIR = path.join(ROOT, 'data');
@@ -127,7 +127,10 @@ async function captureFrame() {
 
   captureInFlight = true;
   try {
-    const { file, localPath } = await takePhoto({ destDir: session.destDir });
+    const { file, localPath } = await takePhoto({
+      device: session.device,
+      destDir: session.destDir,
+    });
     const frame = buildFrame(session.sessionId, file);
     session.frames.push(frame);
     session.framesCaptured += 1;
@@ -177,6 +180,11 @@ async function startRecording({ intervalSeconds, maxMinutes } = {}) {
 
   await ensureConnected();
 
+  const activeDevice = getActiveDevice();
+  if (!activeDevice) {
+    throw new Error('No active device configured. Add and select a device in Phone Configuration.');
+  }
+
   const sessionId = makeSessionId();
   const destDir = path.join(RECORDINGS_DIR, sessionId);
   await fs.mkdir(destDir, { recursive: true });
@@ -188,6 +196,9 @@ async function startRecording({ intervalSeconds, maxMinutes } = {}) {
     status: 'recording',
     sessionId,
     destDir,
+    device: activeDevice,
+    deviceId: activeDevice.id,
+    deviceName: activeDevice.name,
     startedAt: new Date().toISOString(),
     stoppedAt: null,
     stopReason: null,

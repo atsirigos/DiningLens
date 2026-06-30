@@ -10,7 +10,24 @@ const TAB_MODULES = {
   analytics: () => import('./analytics.js'),
 };
 
+let activeTab = 'settings';
+
+async function cleanupTab(tabName) {
+  if (tabName !== 'phone') return;
+  try {
+    const mod = await TAB_MODULES.phone();
+    if (mod.destroy) mod.destroy();
+  } catch {
+    /* ignore cleanup errors */
+  }
+}
+
 function switchTab(tabName) {
+  if (tabName !== activeTab) {
+    cleanupTab(activeTab);
+    activeTab = tabName;
+  }
+
   document.querySelectorAll('.nav-item').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.tab === tabName);
   });

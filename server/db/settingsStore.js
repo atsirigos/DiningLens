@@ -10,7 +10,38 @@ const DEFAULT_PHONE = {
   address: '',
   dcim: '/sdcard/DCIM/Camera',
   shutterKeycodes: [27, 24],
+  devices: [],
+  defaultDeviceId: null,
+  activeDeviceId: null,
 };
+
+function makeDeviceId() {
+  return `dev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeDevice(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+
+  const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : makeDeviceId();
+  const name = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : 'Phone';
+  const connectionType = raw.connectionType === 'usb' ? 'usb' : 'wifi';
+  const serial = typeof raw.serial === 'string' ? raw.serial.trim() : '';
+  const address = typeof raw.address === 'string' ? raw.address.trim() : '';
+  const createdAt = typeof raw.createdAt === 'string' && raw.createdAt.trim()
+    ? raw.createdAt.trim()
+    : new Date().toISOString();
+
+  if (!serial) return null;
+
+  return {
+    id,
+    name,
+    connectionType,
+    serial,
+    address: connectionType === 'wifi' ? (address || serial) : '',
+    createdAt,
+  };
+}
 
 const DEFAULTS = {
   zones: [],
@@ -25,13 +56,55 @@ function normalizePhone(phone) {
     ? raw.shutterKeycodes.map((k) => Number(k)).filter((k) => Number.isFinite(k))
     : DEFAULT_PHONE.shutterKeycodes;
 
+  let devices = Array.isArray(raw.devices)
+    ? raw.devices.map(normalizeDevice).filter(Boolean)
+    : [];
+
+  let defaultDeviceId = typeof raw.defaultDeviceId === 'string' && raw.defaultDeviceId.trim()
+    ? raw.defaultDeviceId.trim()
+    : null;
+  let activeDeviceId = typeof raw.activeDeviceId === 'string' && raw.activeDeviceId.trim()
+    ? raw.activeDeviceId.trim()
+    : null;
+
+  const legacyAddress = typeof raw.address === 'string' ? raw.address.trim() : '';
+
+  if (!devices.length && legacyAddress) {
+    const migrated = normalizeDevice({
+      id: makeDeviceId(),
+      name: 'Phone 1',
+      connectionType: 'wifi',
+      serial: legacyAddress,
+      address: legacyAddress,
+      createdAt: new Date().toISOString(),
+    });
+    if (migrated) {
+      devices = [migrated];
+      defaultDeviceId = migrated.id;
+    }
+  }
+
+  const deviceIds = new Set(devices.map((d) => d.id));
+  if (defaultDeviceId && !deviceIds.has(defaultDeviceId)) {
+    defaultDeviceId = devices[0]?.id || null;
+  }
+  if (activeDeviceId && !deviceIds.has(activeDeviceId)) {
+    activeDeviceId = null;
+  }
+  if (!defaultDeviceId && devices.length) {
+    defaultDeviceId = devices[0].id;
+  }
+
   return {
     adbPath: typeof raw.adbPath === 'string' ? raw.adbPath : DEFAULT_PHONE.adbPath,
-    address: typeof raw.address === 'string' ? raw.address : DEFAULT_PHONE.address,
+    address: legacyAddress,
     dcim: typeof raw.dcim === 'string' && raw.dcim.trim()
       ? raw.dcim.trim()
       : DEFAULT_PHONE.dcim,
     shutterKeycodes,
+    devices,
+    defaultDeviceId,
+    activeDeviceId,
   };
 }
 
@@ -101,4 +174,6 @@ module.exports = {
   DEFAULTS,
   getSettings,
   saveSettings,
+  makeDeviceId,
+  normalizeDevice,
 };

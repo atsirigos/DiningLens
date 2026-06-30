@@ -49,6 +49,14 @@ async function checkAdb() {
   }
 }
 
+function isNetworkSerial(serial) {
+  return /^\d{1,3}(?:\.\d{1,3}){3}:\d+$/.test(serial || '');
+}
+
+function inferConnectionType(serial) {
+  return isNetworkSerial(serial) ? 'wifi' : 'usb';
+}
+
 function parseDevices(output) {
   return output
     .split('\n')
@@ -56,39 +64,106 @@ function parseDevices(output) {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [serial, state] = line.split(/\s+/);
-      return { serial, state };
+      const parts = line.split(/\s+/);
+      const serial = parts[0];
+      const state = parts[1] || 'unknown';
+      const props = {};
+
+      for (const part of parts.slice(2)) {
+        const idx = part.indexOf(':');
+        if (idx === -1) continue;
+        const key = part.slice(0, idx);
+        const value = part.slice(idx + 1);
+        props[key] = value;
+      }
+
+      const model = props.model ? props.model.replace(/_/g, ' ') : null;
+
+      return {
+        serial,
+        state,
+        model,
+        connectionType: inferConnectionType(serial),
+      };
     })
     .filter((d) => d.serial);
 }
 
 async function listDevices() {
-  const out = await adb(['devices']);
+  const out = await adb(['devices', '-l']);
   return parseDevices(out);
 }
 
-async function discoverDevice() {
-  const { address } = getPhoneConfig();
-  if (address?.trim()) return address.trim();
+function getDevices() {
+  return getPhoneConfig().devices || [];
+}
 
-  try {
-    const out = await adb(['mdns', 'services']);
-    const m = out.match(/_adb-tls-connect\._tcp\s+(\S+:\d+)/);
-    if (m) return m[1];
-  } catch {
-    /* mdns may be unsupported */
+function findDevice(id) {
+  if (!id) return null;
+  return getDevices().find((d) => d.id === id) || null;
+}
+
+function getDefaultDevice() {
+  const config = getPhoneConfig();
+  if (config.defaultDeviceId) {
+    const device = findDevice(config.defaultDeviceId);
+    if (device) return device;
+  }
+  return getDevices()[0] || null;
+}
+
+function getActiveDevice() {
+  const config = getPhoneConfig();
+  if (config.activeDeviceId) {
+    const device = findDevice(config.activeDeviceId);
+    if (device) return device;
+  }
+  return getDefaultDevice();
+}
+
+async function ensureConnectedForDevice(device) {
+  if (!device) {
+    throw new Error('No device configured. Add and select a device in Phone Configuration.');
   }
 
-  throw new Error('No phone address configured and no wireless device found via mDNS.');
+  if (device.connectionType === 'wifi') {
+    const addr = device.address || device.serial;
+    if (!addr) {
+      throw new Error(`Wi-Fi device "${device.name}" has no connect address.`);
+    }
+
+    const out = await adb(['connect', addr], { timeout: 30000 });
+    if (!/connected|already connected/i.test(out)) {
+      throw new Error(`Could not connect to ${device.name} (${addr}): ${out}`);
+    }
+    return addr;
+  }
+
+  const liveDevices = await listDevices();
+  const match = liveDevices.find((d) => d.serial === device.serial);
+
+  if (!match) {
+    throw new Error(
+      `USB device "${device.name}" (${device.serial}) is not connected. Plug it in and allow USB debugging.`
+    );
+  }
+
+  if (match.state === 'unauthorized') {
+    throw new Error(
+      `USB device "${device.name}" is unauthorized. Tap "Allow" on the phone's USB debugging prompt.`
+    );
+  }
+
+  if (match.state !== 'device') {
+    throw new Error(`USB device "${device.name}" is in state "${match.state}".`);
+  }
+
+  return device.serial;
 }
 
 async function ensureConnected() {
-  const addr = await discoverDevice();
-  const out = await adb(['connect', addr]);
-  if (!/connected/i.test(out)) {
-    throw new Error(`Could not connect to ${addr}: ${out}`);
-  }
-  return addr;
+  const device = getActiveDevice();
+  return ensureConnectedForDevice(device);
 }
 
 async function pairDevice(host, port, code) {
@@ -149,15 +224,23 @@ async function connectDevice(host, port) {
   }
 
   const out = await adb(['connect', addr], { timeout: 30000 });
-  if (!/connected/i.test(out)) {
+  if (!/connected|already connected/i.test(out)) {
     throw new Error(`Could not connect to ${addr}: ${out}`);
   }
 
-  return { address: addr, message: out };
+  return { address: addr, serial: addr, message: out };
 }
 
 async function disconnectAll() {
   const out = await adb(['disconnect']);
+  return { message: out || 'Disconnected.' };
+}
+
+async function disconnectDevice(address) {
+  if (!address?.trim()) {
+    throw new Error('Address is required to disconnect a Wi-Fi device.');
+  }
+  const out = await adb(['disconnect', address.trim()]);
   return { message: out || 'Disconnected.' };
 }
 
@@ -176,8 +259,9 @@ async function waitForNewPhoto(serial, before, { tries = 8, delayMs = 600 } = {}
   return null;
 }
 
-async function takePhoto({ warmupMs = 2500, destDir = CAPTURE_DIR } = {}) {
-  const serial = await ensureConnected();
+async function takePhoto({ device, warmupMs = 2500, destDir = CAPTURE_DIR } = {}) {
+  const targetDevice = device || getActiveDevice();
+  const serial = await ensureConnectedForDevice(targetDevice);
   const { dcim, shutterKeycodes } = getPhoneConfig();
 
   const before = await latestPhotoName(serial);
@@ -202,7 +286,7 @@ async function takePhoto({ warmupMs = 2500, destDir = CAPTURE_DIR } = {}) {
   const localPath = path.join(destDir, file);
   await adb(['-s', serial, 'pull', `${dcim}/${file}`, localPath], { timeout: 60000 });
 
-  return { file, localPath };
+  return { file, localPath, deviceId: targetDevice?.id || null, deviceName: targetDevice?.name || serial };
 }
 
 module.exports = {
@@ -210,9 +294,18 @@ module.exports = {
   getAdbPath,
   checkAdb,
   listDevices,
+  parseDevices,
+  isNetworkSerial,
+  inferConnectionType,
+  getDevices,
+  findDevice,
+  getDefaultDevice,
+  getActiveDevice,
   pairDevice,
   connectDevice,
   disconnectAll,
+  disconnectDevice,
   ensureConnected,
+  ensureConnectedForDevice,
   takePhoto,
 };

@@ -1184,6 +1184,157 @@
   margin-top: 0.25rem;
 }
 
+.phone-devices-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.phone-devices-header .phone-section-title {
+  margin: 0;
+}
+
+.phone-method-toggle {
+  display: inline-flex;
+  gap: 0.35rem;
+  padding: 0.25rem;
+  border-radius: var(--radius-sm);
+  background: rgba(15, 23, 42, 0.04);
+  margin: 0.75rem 0 1rem;
+}
+
+.phone-method-btn {
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.45rem 0.85rem;
+  border-radius: calc(var(--radius-sm) - 2px);
+  cursor: pointer;
+}
+
+.phone-method-btn.active {
+  background: white;
+  color: var(--color-text);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.phone-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.phone-wifi-subsection {
+  padding: 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.phone-subsection-title {
+  margin: 0 0 0.65rem;
+  font-size: 0.875rem;
+}
+
+.phone-instruction-groups {
+  display: grid;
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.phone-instruction-group h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.875rem;
+}
+
+.phone-detected-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.phone-detected-item {
+  padding: 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.phone-detected-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.phone-detected-info code {
+  font-size: 0.8rem;
+}
+
+.phone-detected-hint {
+  margin: 0.5rem 0 0.75rem;
+  font-size: 0.825rem;
+  color: var(--color-text-muted);
+}
+
+.phone-detected-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.phone-detected-name {
+  flex: 1;
+  min-width: 160px;
+}
+
+.phone-detected-empty {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  padding: 0.75rem;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.phone-device-table td {
+  vertical-align: middle;
+}
+
+.phone-device-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.phone-device-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.phone-device-row-active {
+  background: rgba(59, 130, 246, 0.04);
+}
+
+.phone-rename-input {
+  width: 100%;
+  min-width: 120px;
+}
+
+.phone-danger-btn {
+  color: var(--color-danger);
+}
+
+.badge-info {
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+}
+
 .recording-panel {
   display: flex;
   flex-direction: column;
