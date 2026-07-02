@@ -132,6 +132,43 @@
   cursor: pointer;
   overflow: hidden;
   padding: 0;
+  position: relative;
+}
+
+.gallery-card-actions {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 2;
+  display: flex;
+  gap: 0.25rem;
+}
+
+.gallery-card-delete,
+.trash-restore-btn,
+.trash-delete-btn {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.25rem 0.5rem;
+  line-height: 1;
+}
+
+.gallery-card-delete:hover,
+.trash-restore-btn:hover,
+.trash-delete-btn:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.lightbox-trash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.lightbox-trash-btn {
+  margin-top: 0.75rem;
 }
 
 .gallery-card-thumb {

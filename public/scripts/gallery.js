@@ -13,7 +13,40 @@ let lightboxIndex = -1;
 
 const container = () => document.getElementById('gallery-content');
 
-function groupFiles(files) {
+async function trashItem(itemPath, label, { refresh = true, closeOnSuccess = true } = {}) {
+  if (!window.confirm(`Move "${label}" to trash?`)) return false;
+
+  try {
+    await apiFetch('/api/trash', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: itemPath }),
+    });
+    showToast(`Moved to trash: ${label}`, 'info');
+    if (closeOnSuccess) closeLightbox();
+    if (refresh) await loadData();
+    return true;
+  } catch (err) {
+    showToast(err.message, 'error');
+    return false;
+  }
+}
+
+function renderCardDeleteButton(itemPath, label) {
+  return `
+    <button type="button" class="btn btn-ghost btn-sm gallery-card-delete" data-trash-path="${itemPath}" data-trash-label="${label.replace(/"/g, '&quot;')}" aria-label="Move to trash" title="Move to trash">🗑️</button>`;
+}
+
+function bindCardDeleteButtons(grid) {
+  grid.querySelectorAll('.gallery-card-delete').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      trashItem(btn.dataset.trashPath, btn.dataset.trashLabel);
+    });
+  });
+}
+
+export function groupFiles(files) {
   const sessions = new Map();
   const others = [];
 
@@ -117,6 +150,9 @@ function renderGrid() {
         : '';
       return `
         <div class="card gallery-card" data-index="${idx}" tabindex="0" role="button" aria-label="Play ${file.name}">
+          <div class="gallery-card-actions">
+            ${renderCardDeleteButton(file.path, file.name)}
+          </div>
           <div class="gallery-card-thumb gallery-recording-thumb">
             ${thumbSrc ? `<img src="${thumbSrc}" alt="${file.name}" loading="lazy">` : ''}
             <span class="gallery-recording-play" aria-hidden="true">▶</span>
@@ -139,6 +175,9 @@ function renderGrid() {
 
     return `
       <div class="card gallery-card" data-index="${idx}" tabindex="0" role="button" aria-label="View ${file.name}">
+        <div class="gallery-card-actions">
+          ${renderCardDeleteButton(file.path || file.name, file.name)}
+        </div>
         ${file.type === 'image'
           ? `<img class="gallery-card-thumb" src="${thumbSrc}" alt="${file.name}" loading="lazy">`
           : `<div class="gallery-card-thumb" style="display:flex;align-items:center;justify-content:center;font-size:2rem;">🎬</div>`}
@@ -161,6 +200,7 @@ function renderGrid() {
       }
     });
   });
+  bindCardDeleteButtons(grid);
 }
 
 function renderResultsPanel(file, activeTabId = 'all') {
@@ -256,6 +296,7 @@ function openLightbox(index) {
       <div class="lightbox-sidebar-header">
         <h3>${file.name}</h3>
         <p class="lightbox-file-meta">${formatBytes(file.size)} · ${formatDate(file.modified)}</p>
+        <button type="button" class="btn btn-danger btn-sm lightbox-trash-btn" data-trash-path="${file.path || file.name}" data-trash-label="${file.name.replace(/"/g, '&quot;')}">Move to trash</button>
       </div>
       <div class="lightbox-analysis">
         <h4 class="lightbox-analysis-title">AI Analysis</h4>
@@ -277,6 +318,10 @@ function openLightbox(index) {
   }
 
   bindAnalysisTabs(lb, file);
+
+  lb.querySelector('.lightbox-trash-btn')?.addEventListener('click', () => {
+    trashItem(file.path || file.name, file.name);
+  });
 
   lb.querySelector('.lightbox-close').addEventListener('click', closeLightbox);
   lb.querySelector('.lightbox-nav.prev')?.addEventListener('click', () => navigateLightbox(-1));
@@ -335,6 +380,10 @@ function openRecordingLightbox(index) {
       <div class="lightbox-sidebar-header">
         <h3>${file.name}</h3>
         <p class="lightbox-file-meta">${file.frameCount} frames · ${formatBytes(file.size)} · ${formatDate(file.modified)}</p>
+        <div class="lightbox-trash-actions">
+          <button type="button" class="btn btn-danger btn-sm lightbox-trash-frame-btn">Delete current frame</button>
+          <button type="button" class="btn btn-danger btn-sm lightbox-trash-recording-btn" data-trash-path="${file.path}" data-trash-label="${file.name.replace(/"/g, '&quot;')}">Delete entire recording</button>
+        </div>
       </div>
       <div class="lightbox-analysis">
         <p class="recording-lightbox-note">
@@ -416,6 +465,31 @@ function openRecordingLightbox(index) {
   });
 
   showFrame();
+
+  lb.querySelector('.lightbox-trash-frame-btn')?.addEventListener('click', async () => {
+    const frame = frames[frameIndex];
+    if (!frame) return;
+    const ok = await trashItem(frame.path, frame.name, { refresh: false, closeOnSuccess: false });
+    if (!ok) return;
+
+    frames.splice(frameIndex, 1);
+    if (frames.length === 0) {
+      await loadData();
+      closeLightbox();
+      return;
+    }
+    if (frameIndex >= frames.length) frameIndex = frames.length - 1;
+    scrubber.max = String(frames.length - 1);
+    file.frames = frames;
+    file.frameCount = frames.length;
+    file.size = frames.reduce((sum, fr) => sum + (fr.size || 0), 0);
+    showFrame();
+    await loadData();
+  });
+
+  lb.querySelector('.lightbox-trash-recording-btn')?.addEventListener('click', () => {
+    trashItem(file.path, file.name);
+  });
 
   lb.querySelector('.lightbox-close').addEventListener('click', closeLightbox);
   lb.querySelector('.lightbox-nav.prev')?.addEventListener('click', () => navigateLightbox(-1));

@@ -6,6 +6,7 @@ const TAB_MODULES = {
   recording: () => import('./recording.js'),
   zones: () => import('./zones.js'),
   gallery: () => import('./gallery.js'),
+  trash: () => import('./trash.js'),
   processing: () => import('./processing.js'),
   analytics: () => import('./analytics.js'),
 };

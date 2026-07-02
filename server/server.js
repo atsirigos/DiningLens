@@ -10,6 +10,7 @@ const processRouter = require('./routes/process');
 const usageRouter = require('./routes/usage');
 const phoneRouter = require('./routes/phone');
 const recordingRouter = require('./routes/recording');
+const trashRouter = require('./routes/trash');
 const { getDb } = require('./db/database');
 
 const ROOT = path.join(__dirname, '..');
@@ -46,6 +47,7 @@ app.use('/api', processRouter);
 app.use('/api', usageRouter);
 app.use('/api', phoneRouter);
 app.use('/api', recordingRouter);
+app.use('/api', trashRouter);
 
 app.listen(PORT, () => {
   console.log(`SmartDining server running at http://localhost:${PORT}`);

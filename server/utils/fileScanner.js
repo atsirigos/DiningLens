@@ -27,6 +27,7 @@ function scanDirectory(dir, baseDir = dir) {
     const fullPath = path.join(dir, entry.name);
 
     if (entry.isDirectory()) {
+      if (entry.name === '.trash') continue;
       results.push(...scanDirectory(fullPath, baseDir));
       continue;
     }
