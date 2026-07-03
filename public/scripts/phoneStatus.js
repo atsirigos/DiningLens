@@ -6,6 +6,14 @@ const DEFAULT_REFRESH_SECONDS = 3;
 const MIN_CUSTOM_SECONDS = 2;
 const MAX_CUSTOM_SECONDS = 3600;
 
+const CHART_COLORS = {
+  battery: '#6b5ce7',
+  temperature: '#e85d8a',
+  storage: '#0d9488',
+};
+const CHART_TEXT = '#475569';
+const CHART_GRID = 'rgba(0, 0, 0, 0.06)';
+
 const PRESET_REFRESH_OPTIONS = [
   { value: 0, label: 'Manual only' },
   { value: 3, label: 'Every 3 seconds' },
@@ -21,8 +29,237 @@ let pollTimer = null;
 let loading = false;
 let refreshConfig = loadRefreshConfig();
 let refreshing = false;
+let healthHistory = [];
+let statusCharts = {};
 
 const container = () => document.getElementById('phone-status-content');
+
+function destroyStatusCharts() {
+  Object.values(statusCharts).forEach((chart) => chart.destroy());
+  statusCharts = {};
+}
+
+function chartIntervalSeconds() {
+  const configured = effectiveRefreshSeconds();
+  if (configured > 0) return configured;
+
+  const storedIntervals = healthHistory
+    .map((point) => point.intervalSec)
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (storedIntervals.length) {
+    return storedIntervals[storedIntervals.length - 1];
+  }
+
+  if (healthHistory.length < 2) return DEFAULT_REFRESH_SECONDS;
+
+  const deltas = [];
+  for (let i = 1; i < healthHistory.length; i += 1) {
+    const delta = (Date.parse(healthHistory[i].t) - Date.parse(healthHistory[i - 1].t)) / 1000;
+    if (delta > 0) deltas.push(delta);
+  }
+  if (!deltas.length) return DEFAULT_REFRESH_SECONDS;
+
+  deltas.sort((a, b) => a - b);
+  return Math.max(1, Math.round(deltas[Math.floor(deltas.length / 2)]));
+}
+
+function formatAxisTick(seconds, stepSec) {
+  if (stepSec >= 60) {
+    const minutes = Math.floor(seconds / 60);
+    const secs = Math.round(seconds % 60);
+    return secs ? `${minutes}:${String(secs).padStart(2, '0')}` : `${minutes}m`;
+  }
+  return `${Math.round(seconds)}s`;
+}
+
+function chartTimeSpanSeconds() {
+  if (healthHistory.length < 2) return chartIntervalSeconds();
+  const t0 = Date.parse(healthHistory[0].t);
+  const t1 = Date.parse(healthHistory[healthHistory.length - 1].t);
+  return Math.max(chartIntervalSeconds(), Math.round((t1 - t0) / 1000));
+}
+
+function seriesData(field) {
+  if (!healthHistory.length) return [];
+
+  const t0 = Date.parse(healthHistory[0].t);
+  return healthHistory
+    .map((point) => ({
+      x: Math.round((Date.parse(point.t) - t0) / 1000),
+      y: point[field],
+    }))
+    .filter((point) => point.y != null);
+}
+
+function metricPointCount(metric) {
+  return healthHistory.filter((point) => {
+    switch (metric) {
+      case 'battery':
+        return point.battery != null;
+      case 'temperature':
+        return point.temp != null;
+      case 'storage':
+        return point.storage != null;
+      default:
+        return false;
+    }
+  }).length;
+}
+
+function canDrawMetricChart(metric) {
+  return healthHistory.length >= 2 && metricPointCount(metric) >= 2;
+}
+
+function baseChartOptions({ yMin = undefined, yMax = undefined, yTitle = '' } = {}) {
+  const stepSec = chartIntervalSeconds();
+  const spanSec = chartTimeSpanSeconds();
+
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    parsing: false,
+    animation: { duration: 300 },
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: {
+        labels: { color: CHART_TEXT },
+      },
+    },
+    scales: {
+      x: {
+        type: 'linear',
+        min: 0,
+        max: spanSec,
+        title: {
+          display: true,
+          text: stepSec >= 60 ? 'Time (min:sec)' : 'Time (seconds)',
+          color: CHART_TEXT,
+        },
+        ticks: {
+          stepSize: stepSec,
+          color: CHART_TEXT,
+          maxTicksLimit: Math.min(12, Math.ceil(spanSec / stepSec) + 1),
+          callback: (value) => formatAxisTick(value, stepSec),
+        },
+        grid: { color: CHART_GRID },
+      },
+      y: {
+        type: 'linear',
+        position: 'left',
+        min: yMin,
+        max: yMax,
+        title: yTitle ? { display: true, text: yTitle, color: CHART_TEXT } : undefined,
+        ticks: { color: CHART_TEXT },
+        grid: { color: CHART_GRID },
+      },
+    },
+  };
+}
+
+function buildMetricChartConfig(metric) {
+  switch (metric) {
+    case 'battery':
+      return {
+        type: 'line',
+        data: {
+          datasets: [{
+            label: 'Battery %',
+            data: seriesData('battery'),
+            borderColor: CHART_COLORS.battery,
+            backgroundColor: 'rgba(107, 92, 231, 0.12)',
+            fill: true,
+            spanGaps: true,
+            tension: 0.25,
+          }],
+        },
+        options: baseChartOptions({ yMin: 0, yMax: 100, yTitle: '%' }),
+      };
+    case 'temperature':
+      return {
+        type: 'line',
+        data: {
+          datasets: [{
+            label: 'Temperature °C',
+            data: seriesData('temp'),
+            borderColor: CHART_COLORS.temperature,
+            backgroundColor: 'rgba(232, 93, 138, 0.12)',
+            fill: true,
+            spanGaps: true,
+            tension: 0.25,
+          }],
+        },
+        options: baseChartOptions({ yTitle: '°C' }),
+      };
+    case 'storage':
+      return {
+        type: 'line',
+        data: {
+          datasets: [{
+            label: 'Storage used %',
+            data: seriesData('storage'),
+            borderColor: CHART_COLORS.storage,
+            backgroundColor: 'rgba(13, 148, 136, 0.12)',
+            fill: true,
+            spanGaps: true,
+            tension: 0.25,
+          }],
+        },
+        options: baseChartOptions({ yMin: 0, yMax: 100, yTitle: '%' }),
+      };
+    default:
+      return null;
+  }
+}
+
+function updateMetricChart(metric) {
+  const canvas = document.getElementById(`phone-status-chart-${metric}`);
+  const empty = document.getElementById(`phone-status-chart-${metric}-empty`);
+  if (!canvas) return;
+
+  if (!canDrawMetricChart(metric)) {
+    if (statusCharts[metric]) {
+      statusCharts[metric].destroy();
+      delete statusCharts[metric];
+    }
+    canvas.hidden = true;
+    if (empty) empty.hidden = false;
+    return;
+  }
+
+  canvas.hidden = false;
+  if (empty) empty.hidden = true;
+
+  const config = buildMetricChartConfig(metric);
+  if (!config) return;
+
+  if (statusCharts[metric]) {
+    statusCharts[metric].destroy();
+    delete statusCharts[metric];
+  }
+
+  statusCharts[metric] = new Chart(canvas, config);
+}
+
+function updateStatusCharts() {
+  ['battery', 'temperature', 'storage'].forEach(updateMetricChart);
+
+  const globalEmpty = document.getElementById('phone-status-charts-empty');
+  if (globalEmpty) {
+    const anyChart = ['battery', 'temperature', 'storage'].some(canDrawMetricChart);
+    globalEmpty.hidden = anyChart || healthHistory.length === 0;
+  }
+}
+
+async function clearHealthHistory() {
+  try {
+    await apiFetch('/api/phone/history', { method: 'DELETE' });
+    healthHistory = [];
+    destroyStatusCharts();
+    updateStatusCharts();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
 
 function loadRefreshConfig() {
   try {
@@ -161,6 +398,19 @@ function renderMetric(label, value, { subtext = '', valueId = '', subtextId = ''
     </div>`;
 }
 
+function renderMetricChartCard(metric, title, hint) {
+  return `
+    <div class="card phone-status-metric-chart">
+      <h4 class="phone-status-chart-title">${escapeHtml(title)}</h4>
+      <p class="phone-health-chart-hint phone-status-chart-empty" id="phone-status-chart-${metric}-empty" hidden>
+        ${escapeHtml(hint)}
+      </p>
+      <div class="phone-status-chart-container">
+        <canvas id="phone-status-chart-${metric}" hidden></canvas>
+      </div>
+    </div>`;
+}
+
 function renderWarnings() {
   if (!health?.errors?.length) return '';
   return `
@@ -263,6 +513,21 @@ function renderContent() {
 
         ${renderWarnings()}
       </div>
+
+      <div class="card phone-health-chart-card">
+        <div class="recording-status-header">
+          <h3 class="recording-section-title">Status history</h3>
+          <button type="button" class="btn btn-ghost btn-sm" id="phone-status-clear-chart">Clear graphs</button>
+        </div>
+        <p class="phone-health-chart-hint" id="phone-status-charts-empty" hidden>
+          Refresh at least twice to start building graphs. Enable auto-refresh or press Refresh now.
+        </p>
+        <div class="phone-status-charts-grid">
+          ${renderMetricChartCard('battery', 'Battery', 'Need at least two battery readings.')}
+          ${renderMetricChartCard('temperature', 'Temperature', 'Need at least two temperature readings.')}
+          ${renderMetricChartCard('storage', 'Storage', 'Need at least two storage readings.')}
+        </div>
+      </div>
     </div>`;
 }
 
@@ -298,6 +563,8 @@ function updateHealthDisplay() {
   } else if (health.errors?.length) {
     document.querySelector('.phone-health-card')?.insertAdjacentHTML('beforeend', renderWarnings());
   }
+
+  updateStatusCharts();
 }
 
 function syncRefreshButton() {
@@ -309,9 +576,11 @@ function syncRefreshButton() {
 }
 
 function render() {
+  destroyStatusCharts();
   container().innerHTML = renderContent();
   bindEvents();
   syncRefreshButton();
+  updateStatusCharts();
 }
 
 function bindEvents() {
@@ -329,6 +598,7 @@ function bindEvents() {
       });
       syncCustomIntervalVisibility();
       startPolling();
+      updateStatusCharts();
       showToast(`Auto-refresh every ${refreshConfig.seconds}s`, 'info');
       document.getElementById('phone-status-custom-seconds')?.focus();
       return;
@@ -345,6 +615,7 @@ function bindEvents() {
 
     syncCustomIntervalVisibility();
     startPolling();
+    updateStatusCharts();
     showToast(
       seconds === 0 ? 'Auto-refresh disabled' : `Auto-refresh every ${seconds}s`,
       'info',
@@ -358,6 +629,11 @@ function bindEvents() {
       e.preventDefault();
       applyCustomRefreshInterval();
     }
+  });
+
+  document.getElementById('phone-status-clear-chart')?.addEventListener('click', async () => {
+    await clearHealthHistory();
+    showToast('Graph history cleared', 'info');
   });
 }
 
@@ -375,6 +651,7 @@ function applyCustomRefreshInterval() {
 
   syncCustomIntervalVisibility();
   startPolling();
+  updateStatusCharts();
   showToast(`Auto-refresh every ${seconds}s`, 'info');
 }
 
@@ -382,7 +659,11 @@ async function loadHealth({ silent = false } = {}) {
   if (!silent) loading = true;
   loadError = null;
   try {
-    health = await apiFetch('/api/phone/health');
+    const interval = effectiveRefreshSeconds();
+    const query = `refreshIntervalSec=${encodeURIComponent(interval)}`;
+    const response = await apiFetch(`/api/phone/health?${query}`);
+    health = response;
+    healthHistory = Array.isArray(response.history) ? response.history : [];
   } catch (err) {
     health = null;
     loadError = err.message;
@@ -463,4 +744,5 @@ export function refresh() {
 
 export function destroy() {
   stopPolling();
+  destroyStatusCharts();
 }

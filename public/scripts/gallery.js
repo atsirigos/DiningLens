@@ -37,6 +37,21 @@ function renderCardDeleteButton(itemPath, label) {
     <button type="button" class="btn btn-ghost btn-sm gallery-card-delete" data-trash-path="${itemPath}" data-trash-label="${label.replace(/"/g, '&quot;')}" aria-label="Move to trash" title="Move to trash">🗑️</button>`;
 }
 
+function renderCardRotateButtons(filePath, fileName) {
+  const path = filePath || fileName;
+  return `
+    <button type="button" class="btn btn-ghost btn-sm gallery-card-rotate gallery-card-rotate-ccw" data-rotate-path="${path.replace(/"/g, '&quot;')}" data-rotate-name="${fileName.replace(/"/g, '&quot;')}" data-rotate-degrees="270" aria-label="Rotate left" title="Rotate left 90°">↺</button>
+    <button type="button" class="btn btn-ghost btn-sm gallery-card-rotate gallery-card-rotate-cw" data-rotate-path="${path.replace(/"/g, '&quot;')}" data-rotate-name="${fileName.replace(/"/g, '&quot;')}" data-rotate-degrees="90" aria-label="Rotate right" title="Rotate right 90°">↻</button>`;
+}
+
+function renderLightboxRotateToolbar() {
+  return `
+    <div class="lightbox-photo-toolbar" aria-label="Rotate image">
+      <button type="button" class="btn btn-ghost btn-sm lightbox-rotate-ccw" title="Rotate left 90°">↺</button>
+      <button type="button" class="btn btn-ghost btn-sm lightbox-rotate-cw" title="Rotate right 90°">↻</button>
+    </div>`;
+}
+
 function bindCardDeleteButtons(grid) {
   grid.querySelectorAll('.gallery-card-delete').forEach((btn) => {
     btn.addEventListener('click', (e) => {
@@ -44,6 +59,34 @@ function bindCardDeleteButtons(grid) {
       trashItem(btn.dataset.trashPath, btn.dataset.trashLabel);
     });
   });
+}
+
+function bindCardRotateButtons(grid) {
+  grid.querySelectorAll('.gallery-card-rotate').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const card = btn.closest('.gallery-card');
+      rotateGalleryImage(
+        { path: btn.dataset.rotatePath, name: btn.dataset.rotateName },
+        Number(btn.dataset.rotateDegrees) || 90,
+        { cardElement: card },
+      );
+    });
+  });
+}
+
+function bindLightboxRotateButtons(lb, fileRef, getFileRef) {
+  const bind = (selector, degrees) => {
+    lb.querySelector(selector)?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const target = getFileRef ? getFileRef() : fileRef;
+      if (!target) return;
+      rotateGalleryImage(target, degrees, { lightbox: lb });
+    });
+  };
+
+  bind('.lightbox-rotate-ccw', 270);
+  bind('.lightbox-rotate-cw', 90);
 }
 
 export function groupFiles(files) {
@@ -176,6 +219,7 @@ function renderGrid() {
     return `
       <div class="card gallery-card" data-index="${idx}" tabindex="0" role="button" aria-label="View ${file.name}">
         <div class="gallery-card-actions">
+          ${file.type === 'image' ? renderCardRotateButtons(file.path || file.name, file.name) : ''}
           ${renderCardDeleteButton(file.path || file.name, file.name)}
         </div>
         ${file.type === 'image'
@@ -201,39 +245,61 @@ function renderGrid() {
     });
   });
   bindCardDeleteButtons(grid);
+  bindCardRotateButtons(grid);
 }
 
-async function rotateGalleryImage(file, degrees, lightbox) {
+async function rotateGalleryImage(file, degrees, { lightbox = null, cardElement = null } = {}) {
+  const filePath = file.path || file.name;
+  const fileName = file.name || filePath.split('/').pop();
+  const buttons = [
+    ...(lightbox ? lightbox.querySelectorAll('.lightbox-rotate-ccw, .lightbox-rotate-cw, .lightbox-photo-toolbar button') : []),
+    ...(cardElement ? cardElement.querySelectorAll('.gallery-card-rotate') : []),
+  ];
+
+  buttons.forEach((btn) => { btn.disabled = true; });
+
   try {
     await apiFetch('/api/files/rotate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: file.path || file.name, degrees }),
+      body: JSON.stringify({ path: filePath, degrees }),
     });
 
-    const basename = file.name;
-    if (results[basename]) {
+    if (results[fileName]) {
       try {
-        await apiFetch(`/api/process/${encodeURIComponent(basename)}`, { method: 'DELETE' });
-        delete results[basename];
+        await apiFetch(`/api/process/${encodeURIComponent(fileName)}`, { method: 'DELETE' });
+        delete results[fileName];
       } catch {
         /* ignore cache clear errors */
       }
     }
 
-    const img = lightbox?.querySelector('.lightbox-photo-host img');
-    if (img) {
-      const base = `/api/file/${encodeURIComponent(file.path || file.name)}`;
-      img.src = `${base}?t=${Date.now()}`;
-      if (appSettings.zones?.length) {
-        img.onload = () => drawLightboxZones(lightbox);
+    const cacheBustedSrc = `/api/file/${encodeURIComponent(filePath)}?t=${Date.now()}`;
+
+    const lightboxImg = lightbox?.querySelector('.lightbox-photo-host img, .rp-frame');
+    if (lightboxImg) {
+      lightboxImg.src = cacheBustedSrc;
+      if (appSettings.zones?.length && lightbox.querySelector('.lightbox-photo-host img')) {
+        lightboxImg.onload = () => drawLightboxZones(lightbox);
       }
     }
 
-    showToast(`Rotated image ${degrees}°`, 'success');
+    const cardImg = cardElement?.querySelector('.gallery-card-thumb');
+    if (cardImg) {
+      cardImg.src = cacheBustedSrc;
+    }
+
+    if (lightbox?.querySelector('.lightbox-analysis-body')) {
+      const analysisFile = { name: fileName, path: filePath };
+      lightbox.querySelector('.lightbox-analysis-body').innerHTML = renderResultsPanel(analysisFile);
+      bindAnalysisTabs(lightbox, analysisFile);
+    }
+
     await loadData();
   } catch (err) {
     showToast(err.message, 'error');
+  } finally {
+    buttons.forEach((btn) => { btn.disabled = false; });
   }
 }
 
@@ -307,7 +373,10 @@ function openLightbox(index) {
   const src = `/api/file/${encodeURIComponent(file.path || file.name)}`;
   const media = file.type === 'video'
     ? `<video src="${src}" controls autoplay></video>`
-    : `<div class="zone-photo-host lightbox-photo-host"><img src="${src}" alt="${file.name}"></div>`;
+    : `<div class="zone-photo-host lightbox-photo-host">
+        <img src="${src}" alt="${file.name}">
+        ${renderLightboxRotateToolbar()}
+      </div>`;
 
   const zoneNote = appSettings.zones?.length
     ? `<p class="zone-applied-note">${appSettings.zones.length} saved zone(s) apply to this view</p>`
@@ -330,11 +399,6 @@ function openLightbox(index) {
       <div class="lightbox-sidebar-header">
         <h3>${file.name}</h3>
         <p class="lightbox-file-meta">${formatBytes(file.size)} · ${formatDate(file.modified)}</p>
-        ${file.type === 'image' ? `
-        <div class="lightbox-rotate-actions">
-          <button type="button" class="btn btn-ghost btn-sm lightbox-rotate-ccw">↺ 90°</button>
-          <button type="button" class="btn btn-ghost btn-sm lightbox-rotate-cw">↻ 90°</button>
-        </div>` : ''}
         <button type="button" class="btn btn-danger btn-sm lightbox-trash-btn" data-trash-path="${file.path || file.name}" data-trash-label="${file.name.replace(/"/g, '&quot;')}">Move to trash</button>
       </div>
       <div class="lightbox-analysis">
@@ -362,12 +426,7 @@ function openLightbox(index) {
     trashItem(file.path || file.name, file.name);
   });
 
-  lb.querySelector('.lightbox-rotate-ccw')?.addEventListener('click', () => {
-    rotateGalleryImage(file, 270, lb);
-  });
-  lb.querySelector('.lightbox-rotate-cw')?.addEventListener('click', () => {
-    rotateGalleryImage(file, 90, lb);
-  });
+  bindLightboxRotateButtons(lb, file);
 
   lb.querySelector('.lightbox-close').addEventListener('click', closeLightbox);
   lb.querySelector('.lightbox-nav.prev')?.addEventListener('click', () => navigateLightbox(-1));
@@ -400,8 +459,9 @@ function openRecordingLightbox(index) {
         <button class="btn btn-ghost lightbox-nav next" aria-label="Next">→</button>
       ` : ''}
       <div class="recording-player">
-        <div class="recording-playback-viewport">
+        <div class="recording-playback-viewport recording-lightbox-viewport">
           <img class="recording-playback-frame rp-frame" alt="">
+          ${renderLightboxRotateToolbar()}
         </div>
         <input type="range" class="recording-scrubber rp-scrubber" min="0" max="${frames.length - 1}" value="0" step="1" aria-label="Playback position">
         <div class="recording-playback-controls">
@@ -511,6 +571,8 @@ function openRecordingLightbox(index) {
   });
 
   showFrame();
+
+  bindLightboxRotateButtons(lb, null, () => frames[frameIndex]);
 
   lb.querySelector('.lightbox-trash-frame-btn')?.addEventListener('click', async () => {
     const frame = frames[frameIndex];

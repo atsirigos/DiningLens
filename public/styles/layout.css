@@ -145,6 +145,7 @@
 }
 
 .gallery-card-delete,
+.gallery-card-rotate,
 .trash-restore-btn,
 .trash-delete-btn {
   background: rgba(0, 0, 0, 0.55);
@@ -155,6 +156,7 @@
 }
 
 .gallery-card-delete:hover,
+.gallery-card-rotate:hover,
 .trash-restore-btn:hover,
 .trash-delete-btn:hover {
   background: rgba(0, 0, 0, 0.75);
@@ -175,6 +177,37 @@
   display: flex;
   gap: 0.5rem;
   margin-top: 0.75rem;
+}
+
+.lightbox-photo-host,
+.recording-lightbox-viewport {
+  position: relative;
+}
+
+.lightbox-photo-toolbar {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 3;
+  display: flex;
+  gap: 0.35rem;
+}
+
+.lightbox-photo-toolbar .btn {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  color: #fff;
+  min-width: 2.25rem;
+}
+
+.lightbox-photo-toolbar .btn:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.lightbox-photo-toolbar .btn:disabled,
+.gallery-card-rotate:disabled {
+  opacity: 0.5;
+  cursor: wait;
 }
 
 .zone-rotation-toolbar,
@@ -1512,7 +1545,42 @@
 }
 
 .phone-status-panel {
-  max-width: 720px;
+  max-width: 900px;
+}
+
+.phone-health-chart-card {
+  margin-top: 1rem;
+}
+
+.phone-status-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.phone-status-metric-chart {
+  padding: 1rem;
+}
+
+.phone-status-chart-title {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.phone-status-chart-empty {
+  margin: 0 0 0.5rem;
+}
+
+.phone-health-chart-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.phone-status-chart-container {
+  position: relative;
+  height: 200px;
 }
 
 .phone-health-card {
@@ -1867,6 +1935,10 @@
   }
 
   .phone-health-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .phone-status-charts-grid {
     grid-template-columns: 1fr;
   }
 }

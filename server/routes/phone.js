@@ -14,6 +14,11 @@ const {
 const { installAdb } = require('../adbInstaller');
 const { getSettings, saveSettings, makeDeviceId, normalizeDevice } = require('../db/settingsStore');
 const { normalizeOrientation } = require('../utils/imageRotate');
+const {
+  recordHealthSample,
+  getHealthHistory,
+  clearHealthHistory,
+} = require('../db/phoneHealthStore');
 
 let installPromise = null;
 
@@ -199,9 +204,49 @@ router.get('/phone/health', async (req, res) => {
 
     const serial = await ensureConnectedForDevice(activeDevice);
     const health = await getDeviceHealth(serial, activeDevice);
-    res.json(health);
+
+    const refreshIntervalSec = Number(req.query.refreshIntervalSec);
+    recordHealthSample(
+      activeDevice.id,
+      health,
+      Number.isFinite(refreshIntervalSec) ? refreshIntervalSec : null,
+    );
+
+    const history = getHealthHistory(activeDevice.id);
+    res.json({ ...health, history });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to read phone health' });
+  }
+});
+
+router.get('/phone/history', (req, res) => {
+  try {
+    const activeDevice = getActiveDevice();
+    if (!activeDevice) {
+      return res.status(400).json({ error: 'No active device configured.' });
+    }
+
+    const limit = Number(req.query.limit);
+    const history = getHealthHistory(activeDevice.id, {
+      limit: Number.isFinite(limit) ? limit : 120,
+    });
+    res.json({ deviceId: activeDevice.id, history });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to read phone history' });
+  }
+});
+
+router.delete('/phone/history', (req, res) => {
+  try {
+    const activeDevice = getActiveDevice();
+    if (!activeDevice) {
+      return res.status(400).json({ error: 'No active device configured.' });
+    }
+
+    const deleted = clearHealthHistory(activeDevice.id);
+    res.json({ success: true, deleted });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to clear phone history' });
   }
 });
 
