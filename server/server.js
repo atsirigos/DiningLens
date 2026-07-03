@@ -12,6 +12,7 @@ const phoneRouter = require('./routes/phone');
 const recordingRouter = require('./routes/recording');
 const trashRouter = require('./routes/trash');
 const { getDb } = require('./db/database');
+const { startChargeManager } = require('./chargeManager');
 
 const ROOT = path.join(__dirname, '..');
 const DATA_DIR = path.join(ROOT, 'data');
@@ -51,4 +52,5 @@ app.use('/api', trashRouter);
 
 app.listen(PORT, () => {
   console.log(`SmartDining server running at http://localhost:${PORT}`);
+  startChargeManager();
 });

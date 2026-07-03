@@ -1,4 +1,5 @@
 const { normalizeOrientation } = require('../utils/imageRotate');
+const { normalizeChargeControl } = require('../utils/chargeControlConfig');
 const path = require('path');
 const fs = require('fs');
 const { getDb } = require('./database');
@@ -15,6 +16,11 @@ const DEFAULT_PHONE = {
   defaultDeviceId: null,
   activeDeviceId: null,
   frameRotation: 0,
+  chargeControl: {
+    enabled: true,
+    stopAt: 80,
+    startAt: 20,
+  },
 };
 
 function makeDeviceId() {
@@ -109,6 +115,7 @@ function normalizePhone(phone) {
     defaultDeviceId,
     activeDeviceId,
     frameRotation: normalizeOrientation(raw.frameRotation),
+    chargeControl: normalizeChargeControl(raw.chargeControl ?? DEFAULT_PHONE.chargeControl),
   };
 }
 

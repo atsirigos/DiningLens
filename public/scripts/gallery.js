@@ -13,7 +13,141 @@ let lightboxIndex = -1;
 
 const container = () => document.getElementById('gallery-content');
 
-async function trashItem(itemPath, label, { refresh = true, closeOnSuccess = true } = {}) {
+function getFilterState() {
+  const search = document.getElementById('gallery-search')?.value.toLowerCase() || '';
+  const dateFrom = document.getElementById('gallery-date-from')?.value;
+  const dateTo = document.getElementById('gallery-date-to')?.value;
+  const typeBtn = document.querySelector('#gallery-type-toggle button.active');
+  const typeFilter = typeBtn?.dataset.type || 'all';
+  return { search, dateFrom, dateTo, typeFilter };
+}
+
+function computeFilteredFiles() {
+  const { search, dateFrom, dateTo, typeFilter } = getFilterState();
+
+  return allFiles.filter((f) => {
+    if (search && !f.name.toLowerCase().includes(search)) return false;
+    if (typeFilter !== 'all') {
+      if (typeFilter === 'video') {
+        if (f.type !== 'video' && f.type !== 'recording') return false;
+      } else if (f.type !== typeFilter) {
+        return false;
+      }
+    }
+
+    const modDate = f.modified.split('T')[0];
+    if (dateFrom && modDate < dateFrom) return false;
+    if (dateTo && modDate > dateTo) return false;
+
+    return true;
+  });
+}
+
+function escapeAttr(value) {
+  return String(value ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function findGalleryCard(itemPath) {
+  const grid = document.getElementById('gallery-grid');
+  if (!grid || !itemPath) return null;
+  return grid.querySelector(`[data-item-path="${escapeAttr(itemPath)}"]`);
+}
+
+function reindexGalleryCards() {
+  const grid = document.getElementById('gallery-grid');
+  if (!grid) return;
+  grid.querySelectorAll('.gallery-card').forEach((card, idx) => {
+    card.dataset.index = String(idx);
+  });
+}
+
+function showGridEmptyState() {
+  const grid = document.getElementById('gallery-grid');
+  if (!grid) return;
+  grid.innerHTML = `
+    <div class="empty-state" style="grid-column: 1/-1;">
+      <div class="empty-state-icon">🖼️</div>
+      <h3>No files found</h3>
+      <p>${allFiles.length === 0 ? 'Add photos to the data/ folder to get started.' : 'Try adjusting your filters.'}</p>
+    </div>`;
+}
+
+function updateRecordingCardInPlace(recordingPath) {
+  const card = findGalleryCard(recordingPath);
+  const entry = allFiles.find((f) => f.path === recordingPath);
+  if (!card || !entry?.frames?.length) return;
+
+  const thumb = card.querySelector('.gallery-recording-thumb img');
+  const firstFrame = entry.frames[0];
+  if (thumb && firstFrame) {
+    thumb.src = `/api/file/${encodeURIComponent(firstFrame.path)}`;
+    thumb.alt = entry.name;
+  }
+
+  const badge = card.querySelector('.gallery-recording-badge');
+  if (badge) {
+    badge.textContent = `🎬 ${entry.frameCount} frame${entry.frameCount === 1 ? '' : 's'}`;
+  }
+
+  const sizeEl = card.querySelector('.gallery-card-meta span');
+  if (sizeEl) sizeEl.textContent = formatBytes(entry.size);
+}
+
+function removeTrashPathFromState(itemPath) {
+  if (/^recordings\/[^/]+$/.test(itemPath)) {
+    const entry = allFiles.find((f) => f.path === itemPath);
+    entry?.frames?.forEach((frame) => delete results[frame.name]);
+    allFiles = allFiles.filter((f) => f.path !== itemPath);
+    return { kind: 'recording', path: itemPath };
+  }
+
+  if (itemPath.startsWith('recordings/')) {
+    const session = itemPath.split('/')[1];
+    const recordingPath = `recordings/${session}`;
+    const entry = allFiles.find((f) => f.type === 'recording' && f.path === recordingPath);
+    if (!entry) return null;
+
+    entry.frames = entry.frames.filter((frame) => frame.path !== itemPath);
+    delete results[itemPath.split('/').pop()];
+
+    if (!entry.frames.length) {
+      allFiles = allFiles.filter((f) => f.path !== recordingPath);
+      return { kind: 'recording', path: recordingPath };
+    }
+
+    entry.frameCount = entry.frames.length;
+    entry.size = entry.frames.reduce((sum, fr) => sum + (fr.size || 0), 0);
+    entry.modified = entry.frames[entry.frames.length - 1]?.modified || entry.modified;
+    return { kind: 'frame', path: itemPath, recordingPath };
+  }
+
+  const baseName = itemPath.split('/').pop();
+  delete results[baseName];
+  allFiles = allFiles.filter((f) => (f.path || f.name) !== itemPath);
+  return { kind: 'file', path: itemPath };
+}
+
+function applyGalleryTrashRemoval(itemPath) {
+  const result = removeTrashPathFromState(itemPath);
+  if (!result) return;
+
+  filteredFiles = computeFilteredFiles();
+
+  if (result.kind === 'frame') {
+    updateRecordingCardInPlace(result.recordingPath);
+    return;
+  }
+
+  findGalleryCard(result.path)?.remove();
+  reindexGalleryCards();
+
+  const grid = document.getElementById('gallery-grid');
+  if (grid && !grid.querySelector('.gallery-card')) {
+    showGridEmptyState();
+  }
+}
+
+async function trashItem(itemPath, label, { closeOnSuccess = true } = {}) {
   if (!window.confirm(`Move "${label}" to trash?`)) return false;
 
   try {
@@ -24,7 +158,7 @@ async function trashItem(itemPath, label, { refresh = true, closeOnSuccess = tru
     });
     showToast(`Moved to trash: ${label}`, 'info');
     if (closeOnSuccess) closeLightbox();
-    if (refresh) await loadData();
+    applyGalleryTrashRemoval(itemPath);
     return true;
   } catch (err) {
     showToast(err.message, 'error');
@@ -146,29 +280,7 @@ function renderFilters() {
 }
 
 function applyFilters() {
-  const search = document.getElementById('gallery-search')?.value.toLowerCase() || '';
-  const dateFrom = document.getElementById('gallery-date-from')?.value;
-  const dateTo = document.getElementById('gallery-date-to')?.value;
-  const typeBtn = document.querySelector('#gallery-type-toggle button.active');
-  const typeFilter = typeBtn?.dataset.type || 'all';
-
-  filteredFiles = allFiles.filter((f) => {
-    if (search && !f.name.toLowerCase().includes(search)) return false;
-    if (typeFilter !== 'all') {
-      if (typeFilter === 'video') {
-        if (f.type !== 'video' && f.type !== 'recording') return false;
-      } else if (f.type !== typeFilter) {
-        return false;
-      }
-    }
-
-    const modDate = f.modified.split('T')[0];
-    if (dateFrom && modDate < dateFrom) return false;
-    if (dateTo && modDate > dateTo) return false;
-
-    return true;
-  });
-
+  filteredFiles = computeFilteredFiles();
   renderGrid();
 }
 
@@ -192,7 +304,7 @@ function renderGrid() {
         ? `/api/file/${encodeURIComponent(file.frames[0].path)}`
         : '';
       return `
-        <div class="card gallery-card" data-index="${idx}" tabindex="0" role="button" aria-label="Play ${file.name}">
+        <div class="card gallery-card" data-index="${idx}" data-item-path="${escapeAttr(file.path)}" tabindex="0" role="button" aria-label="Play ${file.name}">
           <div class="gallery-card-actions">
             ${renderCardDeleteButton(file.path, file.name)}
           </div>
@@ -217,7 +329,7 @@ function renderGrid() {
       : '';
 
     return `
-      <div class="card gallery-card" data-index="${idx}" tabindex="0" role="button" aria-label="View ${file.name}">
+      <div class="card gallery-card" data-index="${idx}" data-item-path="${escapeAttr(file.path || file.name)}" tabindex="0" role="button" aria-label="View ${file.name}">
         <div class="gallery-card-actions">
           ${file.type === 'image' ? renderCardRotateButtons(file.path || file.name, file.name) : ''}
           ${renderCardDeleteButton(file.path || file.name, file.name)}
@@ -577,22 +689,29 @@ function openRecordingLightbox(index) {
   lb.querySelector('.lightbox-trash-frame-btn')?.addEventListener('click', async () => {
     const frame = frames[frameIndex];
     if (!frame) return;
-    const ok = await trashItem(frame.path, frame.name, { refresh: false, closeOnSuccess: false });
+    const ok = await trashItem(frame.path, frame.name, { closeOnSuccess: false });
     if (!ok) return;
 
-    frames.splice(frameIndex, 1);
-    if (frames.length === 0) {
-      await loadData();
+    const entry = allFiles.find((f) => f.type === 'recording' && f.path === file.path);
+    if (entry) {
+      frames.length = 0;
+      frames.push(...entry.frames);
+    }
+
+    if (!frames.length) {
       closeLightbox();
       return;
     }
+
     if (frameIndex >= frames.length) frameIndex = frames.length - 1;
     scrubber.max = String(frames.length - 1);
     file.frames = frames;
     file.frameCount = frames.length;
     file.size = frames.reduce((sum, fr) => sum + (fr.size || 0), 0);
+    counter.textContent = `${frameIndex + 1} / ${frames.length}`;
+    lb.querySelector('.lightbox-file-meta').textContent =
+      `${file.frameCount} frames · ${formatBytes(file.size)} · ${formatDate(file.modified)}`;
     showFrame();
-    await loadData();
   });
 
   lb.querySelector('.lightbox-trash-recording-btn')?.addEventListener('click', () => {

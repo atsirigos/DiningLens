@@ -11,8 +11,33 @@ const CHART_COLORS = {
   temperature: '#e85d8a',
   storage: '#0d9488',
 };
+const HEALTH_LEVEL_COLORS = {
+  safe: '#059669',
+  warning: '#d97706',
+  critical: '#dc2626',
+};
 const CHART_TEXT = '#475569';
 const CHART_GRID = 'rgba(0, 0, 0, 0.06)';
+
+/** Battery % thresholds (aligned with charge-control 20–80% target). */
+const BATTERY_THRESHOLDS = {
+  safeMin: 20,
+  safeMax: 80,
+  warningLowMax: 19,
+  warningHighMin: 81,
+  criticalLowMax: 14,
+  criticalHighMin: 95,
+};
+
+/** Phone battery temperature (°C from dumpsys). */
+const TEMPERATURE_THRESHOLDS = {
+  safeMin: 10,
+  safeMax: 37,
+  warningMin: 38,
+  warningMax: 42,
+  criticalLowMax: 9,
+  criticalHighMin: 43,
+};
 
 const PRESET_REFRESH_OPTIONS = [
   { value: 0, label: 'Manual only' },
@@ -156,6 +181,64 @@ function baseChartOptions({ yMin = undefined, yMax = undefined, yTitle = '' } = 
   };
 }
 
+function evaluateBatteryLevel(level) {
+  if (level == null || !Number.isFinite(level)) return null;
+  if (level <= BATTERY_THRESHOLDS.criticalLowMax || level >= BATTERY_THRESHOLDS.criticalHighMin) {
+    return 'critical';
+  }
+  if (level <= BATTERY_THRESHOLDS.warningLowMax || level >= BATTERY_THRESHOLDS.warningHighMin) {
+    return 'warning';
+  }
+  return 'safe';
+}
+
+function evaluateTemperatureLevel(celsius) {
+  if (celsius == null || !Number.isFinite(celsius)) return null;
+  if (celsius <= TEMPERATURE_THRESHOLDS.criticalLowMax || celsius >= TEMPERATURE_THRESHOLDS.criticalHighMin) {
+    return 'critical';
+  }
+  if (celsius >= TEMPERATURE_THRESHOLDS.warningMin && celsius <= TEMPERATURE_THRESHOLDS.warningMax) {
+    return 'warning';
+  }
+  return 'safe';
+}
+
+function healthLevelLabel(level) {
+  switch (level) {
+    case 'safe':
+      return 'Safe';
+    case 'warning':
+      return 'Caution';
+    case 'critical':
+      return 'Critical';
+    default:
+      return '';
+  }
+}
+
+function healthLevelColor(level) {
+  return HEALTH_LEVEL_COLORS[level] || CHART_TEXT;
+}
+
+function batteryLevelSubtext(level) {
+  const status = healthLevelLabel(level);
+  if (!status) return '';
+  return `${status} · target ${BATTERY_THRESHOLDS.safeMin}–${BATTERY_THRESHOLDS.safeMax}%`;
+}
+
+function temperatureLevelSubtext(level) {
+  const status = healthLevelLabel(level);
+  if (!status) return '';
+  return `${status} · target ${TEMPERATURE_THRESHOLDS.safeMin}–${TEMPERATURE_THRESHOLDS.safeMax}°C`;
+}
+
+function segmentColorForMetric(metric, value) {
+  const level = metric === 'battery'
+    ? evaluateBatteryLevel(value)
+    : evaluateTemperatureLevel(value);
+  return level ? healthLevelColor(level) : 'rgba(71, 85, 105, 0.35)';
+}
+
 function buildMetricChartConfig(metric) {
   switch (metric) {
     case 'battery':
@@ -165,11 +248,14 @@ function buildMetricChartConfig(metric) {
           datasets: [{
             label: 'Battery %',
             data: seriesData('battery'),
-            borderColor: CHART_COLORS.battery,
-            backgroundColor: 'rgba(107, 92, 231, 0.12)',
+            borderColor: healthLevelColor(evaluateBatteryLevel(health?.battery?.level)),
+            backgroundColor: 'rgba(5, 150, 105, 0.08)',
             fill: true,
             spanGaps: true,
             tension: 0.25,
+            segment: {
+              borderColor: (ctx) => segmentColorForMetric('battery', ctx.p1?.parsed?.y),
+            },
           }],
         },
         options: baseChartOptions({ yMin: 0, yMax: 100, yTitle: '%' }),
@@ -181,11 +267,14 @@ function buildMetricChartConfig(metric) {
           datasets: [{
             label: 'Temperature °C',
             data: seriesData('temp'),
-            borderColor: CHART_COLORS.temperature,
-            backgroundColor: 'rgba(232, 93, 138, 0.12)',
+            borderColor: healthLevelColor(evaluateTemperatureLevel(health?.battery?.temperatureCelsius)),
+            backgroundColor: 'rgba(5, 150, 105, 0.08)',
             fill: true,
             spanGaps: true,
             tension: 0.25,
+            segment: {
+              borderColor: (ctx) => segmentColorForMetric('temperature', ctx.p1?.parsed?.y),
+            },
           }],
         },
         options: baseChartOptions({ yTitle: '°C' }),
@@ -371,6 +460,60 @@ function formatStorage(storage) {
   return `${formatBytes(storage.usedBytes)} / ${formatBytes(storage.totalBytes)}${pct}`;
 }
 
+function formatChargeControl(cc) {
+  if (!cc) return '—';
+  if (!cc.enabled) return 'Disabled in settings';
+
+  const range = `${cc.startAt ?? 20}% → ${cc.stopAt ?? 80}%`;
+  if (!cc.supported) {
+    return cc.reason || 'Not supported (root may be required)';
+  }
+
+  const actionText = {
+    disabled: 'Charging paused',
+    enabled: 'Charging active',
+    unchanged: 'Within limits',
+    threshold_set: 'Hardware limits set',
+    skipped: cc.reason || 'Skipped',
+    error: `Error: ${cc.reason || 'unknown'}`,
+  };
+
+  const label = actionText[cc.action] || cc.action || 'Active';
+  return `${label} · ${range}`;
+}
+
+function formatChargeControlSubtext(cc) {
+  if (!cc?.enabled) return '';
+  if (cc.plugged === false) return 'Cable unplugged';
+  if (cc.level != null && cc.plugged) return `Battery ${cc.level}% · plugged in`;
+  if (cc.mode && cc.mode !== 'unsupported') return `Mode: ${cc.mode}`;
+  return '';
+}
+
+function renderChargeControlStatus() {
+  const cc = health?.chargeControl;
+  if (!cc) return '';
+
+  const supported = cc.enabled && cc.supported;
+  const badgeClass = !cc.enabled
+    ? 'badge-muted'
+    : supported
+      ? (cc.action === 'disabled' ? 'badge-warning' : 'badge-success')
+      : 'badge-muted';
+
+  return `
+    <div class="phone-charge-status card" id="phone-charge-status-card">
+      <div class="recording-status-header">
+        <h3 class="recording-section-title">Charge control</h3>
+        <span class="badge ${badgeClass}" id="phone-charge-status-badge">
+          ${cc.enabled ? (cc.supported ? 'Active' : 'Unsupported') : 'Off'}
+        </span>
+      </div>
+      <p class="phone-charge-status-value" id="phone-charge-status-value">${escapeHtml(formatChargeControl(cc))}</p>
+      <p class="phone-charge-status-sub" id="phone-charge-status-sub">${escapeHtml(formatChargeControlSubtext(cc))}</p>
+    </div>`;
+}
+
 function renderRefreshOptions() {
   const presetOptions = PRESET_REFRESH_OPTIONS.map((option) => `
     <option value="${option.value}" ${selectedRefreshValue() === String(option.value) ? 'selected' : ''}>
@@ -387,15 +530,36 @@ function syncCustomIntervalVisibility() {
   if (wrap) wrap.hidden = !isCustomRefreshMode();
 }
 
-function renderMetric(label, value, { subtext = '', valueId = '', subtextId = '' } = {}) {
+function renderMetric(label, value, {
+  subtext = '',
+  valueId = '',
+  subtextId = '',
+  level = null,
+  statId = '',
+} = {}) {
+  const levelClass = level ? ` phone-health-stat--${level}` : '';
   return `
-    <div class="recording-stat phone-health-stat">
+    <div class="recording-stat phone-health-stat${levelClass}"${statId ? ` id="${statId}"` : ''}>
       <span class="recording-stat-label">${escapeHtml(label)}</span>
       <span class="recording-stat-value"${valueId ? ` id="${valueId}"` : ''}>${escapeHtml(value)}</span>
       ${subtext || subtextId
-        ? `<span class="phone-health-subtext"${subtextId ? ` id="${subtextId}"` : ''}>${escapeHtml(subtext)}</span>`
+        ? `<span class="phone-health-subtext phone-health-level-subtext"${subtextId ? ` id="${subtextId}"` : ''}>${escapeHtml(subtext)}</span>`
         : ''}
     </div>`;
+}
+
+function applyMetricLevel(statId, subtextId, level, subtext) {
+  const stat = statId ? document.getElementById(statId) : null;
+  if (stat) {
+    stat.classList.remove('phone-health-stat--safe', 'phone-health-stat--warning', 'phone-health-stat--critical');
+    if (level) stat.classList.add(`phone-health-stat--${level}`);
+  }
+
+  const sub = subtextId ? document.getElementById(subtextId) : null;
+  if (sub) {
+    sub.textContent = subtext || '';
+    sub.hidden = !subtext;
+  }
 }
 
 function renderMetricChartCard(metric, title, hint) {
@@ -483,6 +647,8 @@ function renderContent() {
 
   const deviceName = health.device?.name || 'Unknown device';
   const deviceSerial = health.device?.serial || '';
+  const batteryLevel = evaluateBatteryLevel(health.battery?.level);
+  const temperatureLevel = evaluateTemperatureLevel(health.battery?.temperatureCelsius);
 
   return `
     <div class="phone-status-panel">
@@ -497,8 +663,20 @@ function renderContent() {
         </div>
 
         <div class="recording-status-grid phone-health-grid">
-          ${renderMetric('Battery', formatBattery(health.battery), { valueId: 'phone-status-battery' })}
-          ${renderMetric('Temperature', formatTemperature(health.battery?.temperatureCelsius), { valueId: 'phone-status-temperature' })}
+          ${renderMetric('Battery', formatBattery(health.battery), {
+            valueId: 'phone-status-battery',
+            statId: 'phone-status-battery-stat',
+            subtextId: 'phone-status-battery-level',
+            subtext: batteryLevelSubtext(batteryLevel),
+            level: batteryLevel,
+          })}
+          ${renderMetric('Temperature', formatTemperature(health.battery?.temperatureCelsius), {
+            valueId: 'phone-status-temperature',
+            statId: 'phone-status-temperature-stat',
+            subtextId: 'phone-status-temperature-level',
+            subtext: temperatureLevelSubtext(temperatureLevel),
+            level: temperatureLevel,
+          })}
           ${renderMetric('Storage', formatStorage(health.storage), {
             valueId: 'phone-status-storage',
             subtext: health.storage?.mount ? `Mount: ${health.storage.mount}` : '',
@@ -507,12 +685,24 @@ function renderContent() {
           ${renderMetric('Location', formatLocation(health.location), { valueId: 'phone-status-location' })}
         </div>
 
+        <p class="phone-health-threshold-legend">
+          <span class="phone-health-legend-item phone-health-legend-safe">Safe</span>
+          <span class="phone-health-legend-item phone-health-legend-warning">Caution</span>
+          <span class="phone-health-legend-item phone-health-legend-critical">Critical</span>
+          <span class="phone-health-legend-ranges">
+            Battery ${BATTERY_THRESHOLDS.safeMin}–${BATTERY_THRESHOLDS.safeMax}%
+            · Temperature ${TEMPERATURE_THRESHOLDS.safeMin}–${TEMPERATURE_THRESHOLDS.safeMax}°C
+          </span>
+        </p>
+
         <p class="phone-health-updated" id="phone-status-updated">
           Last updated: ${health.fetchedAt ? new Date(health.fetchedAt).toLocaleTimeString() : '—'}
         </p>
 
         ${renderWarnings()}
       </div>
+
+      ${renderChargeControlStatus()}
 
       <div class="card phone-health-chart-card">
         <div class="recording-status-header">
@@ -534,11 +724,26 @@ function renderContent() {
 function updateHealthDisplay() {
   if (!health) return;
 
+  const batteryLevel = evaluateBatteryLevel(health.battery?.level);
+  const temperatureLevel = evaluateTemperatureLevel(health.battery?.temperatureCelsius);
+
   const battery = document.getElementById('phone-status-battery');
   if (battery) battery.textContent = formatBattery(health.battery);
+  applyMetricLevel(
+    'phone-status-battery-stat',
+    'phone-status-battery-level',
+    batteryLevel,
+    batteryLevelSubtext(batteryLevel),
+  );
 
   const temperature = document.getElementById('phone-status-temperature');
   if (temperature) temperature.textContent = formatTemperature(health.battery?.temperatureCelsius);
+  applyMetricLevel(
+    'phone-status-temperature-stat',
+    'phone-status-temperature-level',
+    temperatureLevel,
+    temperatureLevelSubtext(temperatureLevel),
+  );
 
   const storage = document.getElementById('phone-status-storage');
   if (storage) storage.textContent = formatStorage(health.storage);
@@ -551,6 +756,26 @@ function updateHealthDisplay() {
 
   const location = document.getElementById('phone-status-location');
   if (location) location.textContent = formatLocation(health.location);
+
+  const chargeValue = document.getElementById('phone-charge-status-value');
+  if (chargeValue) chargeValue.textContent = formatChargeControl(health.chargeControl);
+
+  const chargeSub = document.getElementById('phone-charge-status-sub');
+  if (chargeSub) chargeSub.textContent = formatChargeControlSubtext(health.chargeControl);
+
+  const chargeBadge = document.getElementById('phone-charge-status-badge');
+  const cc = health.chargeControl;
+  if (chargeBadge && cc) {
+    const supported = cc.enabled && cc.supported;
+    chargeBadge.className = `badge ${
+      !cc.enabled
+        ? 'badge-muted'
+        : supported
+          ? (cc.action === 'disabled' ? 'badge-warning' : 'badge-success')
+          : 'badge-muted'
+    }`;
+    chargeBadge.textContent = cc.enabled ? (cc.supported ? 'Active' : 'Unsupported') : 'Off';
+  }
 
   const updated = document.getElementById('phone-status-updated');
   if (updated) {

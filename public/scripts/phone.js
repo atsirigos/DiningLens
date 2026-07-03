@@ -284,6 +284,39 @@ function renderRegisteredDevices() {
     </div>`;
 }
 
+function renderChargeControlCard() {
+  if (!status?.activeDevice) return '';
+
+  const cc = status?.config?.chargeControl || { enabled: true, stopAt: 80, startAt: 20 };
+
+  return `
+    <div class="card phone-charge-control-card">
+      <h4 class="phone-section-title">Battery charge limits</h4>
+      <p class="phone-step-desc">
+        When the active phone is plugged in, charging stops at the upper limit and resumes at the lower limit.
+        Most Samsung devices need root access for this to work.
+      </p>
+      <label class="phone-charge-toggle">
+        <input type="checkbox" id="phone-charge-enabled" ${cc.enabled ? 'checked' : ''}>
+        <span>Enable charge control</span>
+      </label>
+      <div class="phone-charge-fields">
+        <label class="phone-charge-field">
+          <span>Stop charging at</span>
+          <input type="number" id="phone-charge-stop" min="2" max="100" step="1" value="${cc.stopAt}">
+          <span>%</span>
+        </label>
+        <label class="phone-charge-field">
+          <span>Start charging at</span>
+          <input type="number" id="phone-charge-start" min="1" max="99" step="1" value="${cc.startAt}">
+          <span>%</span>
+        </label>
+      </div>
+      <button type="button" class="btn btn-primary btn-sm" id="phone-charge-save-btn">Save charge limits</button>
+      <p id="phone-charge-save-result" class="phone-step-result" hidden></p>
+    </div>`;
+}
+
 function renderConnectedView() {
   const active = status?.activeDevice;
   if (!active) return '';
@@ -321,6 +354,7 @@ function render() {
       </div>
 
       ${renderConnectedView()}
+      ${renderChargeControlCard()}
 
       <div class="phone-steps">
         ${renderAdbStep()}
@@ -576,6 +610,37 @@ function bindSnapEvents() {
   });
 }
 
+function bindChargeControlEvents() {
+  document.getElementById('phone-charge-save-btn')?.addEventListener('click', async () => {
+    const enabled = document.getElementById('phone-charge-enabled')?.checked ?? true;
+    const stopAt = Number(document.getElementById('phone-charge-stop')?.value);
+    const startAt = Number(document.getElementById('phone-charge-start')?.value);
+
+    const btn = document.getElementById('phone-charge-save-btn');
+    btn.disabled = true;
+    setStepResult('phone-charge-save-result', 'Saving…');
+
+    try {
+      const result = await apiFetch('/api/phone/config', {
+        method: 'POST',
+        body: JSON.stringify({
+          chargeControl: { enabled, stopAt, startAt },
+        }),
+      });
+      if (status) {
+        status.config = { ...status.config, chargeControl: result.config.chargeControl };
+      }
+      setStepResult('phone-charge-save-result', 'Charge limits saved.');
+      showToast('Charge limits saved', 'success');
+    } catch (err) {
+      setStepResult('phone-charge-save-result', err.message, true);
+      showToast(err.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
 function bindEvents() {
   document.getElementById('install-adb-btn')?.addEventListener('click', installAdb);
 
@@ -664,6 +729,7 @@ function bindEvents() {
   bindUsbDetectEvents();
   bindDeviceTableEvents();
   bindSnapEvents();
+  bindChargeControlEvents();
 }
 
 export async function init() {

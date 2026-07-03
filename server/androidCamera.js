@@ -516,10 +516,14 @@ function parseBatteryDump(output) {
   const level = levelMatch ? Number(levelMatch[1]) : null;
   const status = statusMatch ? Number(statusMatch[1]) : null;
   const temperatureRaw = tempMatch ? Number(tempMatch[1]) : null;
+  const plugged = /AC powered:\s*true/i.test(text)
+    || /USB powered:\s*true/i.test(text)
+    || /Wireless powered:\s*true/i.test(text);
 
   return {
     level: Number.isFinite(level) ? level : null,
     charging: status === 2 || status === 5,
+    plugged,
     temperatureCelsius: Number.isFinite(temperatureRaw) ? temperatureRaw / 10 : null,
   };
 }
@@ -698,4 +702,5 @@ module.exports = {
   deletePhonePhotos,
   closePhoneScreen,
   getDeviceHealth,
+  adbShell,
 };

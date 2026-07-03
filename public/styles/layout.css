@@ -1307,6 +1307,57 @@
   border: 1px solid var(--color-border);
 }
 
+.phone-charge-control-card {
+  margin-bottom: 1rem;
+}
+
+.phone-charge-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.phone-charge-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.phone-charge-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.phone-charge-field input[type="number"] {
+  width: 4rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+}
+
+.phone-charge-status {
+  margin-bottom: 1rem;
+}
+
+.phone-charge-status-value {
+  margin: 0.5rem 0 0.25rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.phone-charge-status-sub {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
 .phone-inline-spinner {
   display: inline-block;
   width: 0.9rem;
@@ -1594,6 +1645,85 @@
 .phone-health-stat .recording-stat-value {
   font-size: 0.95rem;
   word-break: break-word;
+}
+
+.phone-health-stat--safe {
+  background: rgba(5, 150, 105, 0.08);
+  box-shadow: inset 3px 0 0 var(--color-success);
+}
+
+.phone-health-stat--warning {
+  background: rgba(217, 119, 6, 0.1);
+  box-shadow: inset 3px 0 0 var(--color-warning);
+}
+
+.phone-health-stat--critical {
+  background: rgba(220, 38, 38, 0.1);
+  box-shadow: inset 3px 0 0 var(--color-danger);
+}
+
+.phone-health-stat--safe .recording-stat-value {
+  color: var(--color-success);
+}
+
+.phone-health-stat--warning .recording-stat-value {
+  color: var(--color-warning);
+}
+
+.phone-health-stat--critical .recording-stat-value {
+  color: var(--color-danger);
+}
+
+.phone-health-level-subtext {
+  font-weight: 500;
+}
+
+.phone-health-stat--safe .phone-health-level-subtext {
+  color: var(--color-success);
+}
+
+.phone-health-stat--warning .phone-health-level-subtext {
+  color: var(--color-warning);
+}
+
+.phone-health-stat--critical .phone-health-level-subtext {
+  color: var(--color-danger);
+}
+
+.phone-health-threshold-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.phone-health-legend-item::before {
+  content: '';
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-right: 0.3rem;
+  border-radius: 50%;
+  vertical-align: 0.05rem;
+}
+
+.phone-health-legend-safe::before {
+  background: var(--color-success);
+}
+
+.phone-health-legend-warning::before {
+  background: var(--color-warning);
+}
+
+.phone-health-legend-critical::before {
+  background: var(--color-danger);
+}
+
+.phone-health-legend-ranges {
+  flex: 1 1 100%;
 }
 
 .phone-health-subtext {

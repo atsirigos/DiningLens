@@ -19,6 +19,13 @@ const {
   getHealthHistory,
   clearHealthHistory,
 } = require('../db/phoneHealthStore');
+const {
+  normalizeChargeControl,
+  applyChargeControl,
+  getLastChargeControlStatus,
+  clearCapabilityCache,
+} = require('../utils/chargeControl');
+const { tickChargeControl } = require('../chargeManager');
 
 let installPromise = null;
 
@@ -34,6 +41,7 @@ function sanitizePhoneConfig(phone) {
     defaultDeviceId: phone.defaultDeviceId || null,
     activeDeviceId: phone.activeDeviceId || null,
     frameRotation: phone.frameRotation || 0,
+    chargeControl: phone.chargeControl || normalizeChargeControl(),
   };
 }
 
@@ -212,8 +220,22 @@ router.get('/phone/health', async (req, res) => {
       Number.isFinite(refreshIntervalSec) ? refreshIntervalSec : null,
     );
 
+    let chargeControl = getLastChargeControlStatus();
+    if (settings.phone.chargeControl?.enabled) {
+      try {
+        chargeControl = await applyChargeControl(serial, settings.phone.chargeControl);
+      } catch (err) {
+        chargeControl = {
+          enabled: true,
+          action: 'error',
+          reason: err.message,
+          at: new Date().toISOString(),
+        };
+      }
+    }
+
     const history = getHealthHistory(activeDevice.id);
-    res.json({ ...health, history });
+    res.json({ ...health, history, chargeControl });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to read phone health' });
   }
@@ -286,10 +308,15 @@ router.post('/phone/config', (req, res) => {
         ...(incoming.frameRotation !== undefined
           ? { frameRotation: normalizeOrientation(incoming.frameRotation) }
           : {}),
+        ...(incoming.chargeControl !== undefined
+          ? { chargeControl: normalizeChargeControl(incoming.chargeControl) }
+          : {}),
       },
     };
 
     const saved = saveSettings(settings);
+    clearCapabilityCache();
+    tickChargeControl().catch(() => {});
     res.json({ success: true, config: sanitizePhoneConfig(saved.phone) });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to save phone config' });
