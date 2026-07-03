@@ -1,30 +1,34 @@
 const sharp = require('sharp');
-const { getEffectiveDimensions, zoneToLandscapePixels } = require('./zoneGeometry');
+const { normalizeOrientation } = require('./imageRotate');
+const { resolveOrientation, zoneToLandscapePixels } = require('./zoneGeometry');
 
 /**
  * Zone coordinates are normalized (0–1) on a landscape view (wide side horizontal).
- * Portrait photos are rotated 90° clockwise before cropping, matching the Zones editor.
- *
- * Apply EXIF orientation first so pixel data matches browser naturalWidth/naturalHeight.
+ * Orientation matches the Zones editor (portrait default + saved referenceOrientation).
  */
-async function cropZoneFromPhoto(filePath, zone) {
+async function cropZoneFromPhoto(filePath, zone, orientationDeg = null) {
   const orientedBuffer = await sharp(filePath).rotate().toBuffer();
   const orientedMeta = await sharp(orientedBuffer).metadata();
 
-  const { width: effWidth, height: effHeight, rotated } = getEffectiveDimensions(
+  const orient = resolveOrientation(
     orientedMeta.width,
     orientedMeta.height,
+    orientationDeg,
   );
+
+  const landscapeBuffer = orient
+    ? await sharp(orientedBuffer).rotate(orient).toBuffer()
+    : orientedBuffer;
+
+  const landscapeMeta = await sharp(landscapeBuffer).metadata();
+  const effWidth = landscapeMeta.width;
+  const effHeight = landscapeMeta.height;
 
   const rect = zoneToLandscapePixels(zone, effWidth, effHeight);
 
   if (rect.width < 8 || rect.height < 8) {
     throw new Error(`Zone "${zone.name}" crop is too small (${rect.width}×${rect.height}px)`);
   }
-
-  const landscapeBuffer = rotated
-    ? await sharp(orientedBuffer).rotate(90).toBuffer()
-    : orientedBuffer;
 
   const buffer = await sharp(landscapeBuffer)
     .extract(rect)
@@ -37,11 +41,11 @@ async function cropZoneFromPhoto(filePath, zone) {
   };
 }
 
-async function cropAllZones(filePath, zones) {
+async function cropAllZones(filePath, zones, orientationDeg = null) {
   const crops = [];
   for (const zone of zones) {
     if (!zone?.name) continue;
-    const image = await cropZoneFromPhoto(filePath, zone);
+    const image = await cropZoneFromPhoto(filePath, zone, orientationDeg);
     crops.push({ zone, image });
   }
   return crops;

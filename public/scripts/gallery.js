@@ -203,6 +203,40 @@ function renderGrid() {
   bindCardDeleteButtons(grid);
 }
 
+async function rotateGalleryImage(file, degrees, lightbox) {
+  try {
+    await apiFetch('/api/files/rotate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: file.path || file.name, degrees }),
+    });
+
+    const basename = file.name;
+    if (results[basename]) {
+      try {
+        await apiFetch(`/api/process/${encodeURIComponent(basename)}`, { method: 'DELETE' });
+        delete results[basename];
+      } catch {
+        /* ignore cache clear errors */
+      }
+    }
+
+    const img = lightbox?.querySelector('.lightbox-photo-host img');
+    if (img) {
+      const base = `/api/file/${encodeURIComponent(file.path || file.name)}`;
+      img.src = `${base}?t=${Date.now()}`;
+      if (appSettings.zones?.length) {
+        img.onload = () => drawLightboxZones(lightbox);
+      }
+    }
+
+    showToast(`Rotated image ${degrees}°`, 'success');
+    await loadData();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
 function renderResultsPanel(file, activeTabId = 'all') {
   const result = results[file.name];
   if (!result) {
@@ -238,7 +272,7 @@ function drawLightboxZones(lightbox) {
   const host = lightbox.querySelector('.lightbox-photo-host');
   if (!host || !img || !appSettings.zones?.length) return;
 
-  mountZoneOverlay(host, img, appSettings.zones);
+  mountZoneOverlay(host, img, appSettings.zones, appSettings.referenceOrientation);
   const result = results[lightbox.dataset.filename];
   if (result) {
     highlightZoneOverlay(host, getActiveZoneName(result, appSettings.zones, 'all'));
@@ -296,6 +330,11 @@ function openLightbox(index) {
       <div class="lightbox-sidebar-header">
         <h3>${file.name}</h3>
         <p class="lightbox-file-meta">${formatBytes(file.size)} · ${formatDate(file.modified)}</p>
+        ${file.type === 'image' ? `
+        <div class="lightbox-rotate-actions">
+          <button type="button" class="btn btn-ghost btn-sm lightbox-rotate-ccw">↺ 90°</button>
+          <button type="button" class="btn btn-ghost btn-sm lightbox-rotate-cw">↻ 90°</button>
+        </div>` : ''}
         <button type="button" class="btn btn-danger btn-sm lightbox-trash-btn" data-trash-path="${file.path || file.name}" data-trash-label="${file.name.replace(/"/g, '&quot;')}">Move to trash</button>
       </div>
       <div class="lightbox-analysis">
@@ -321,6 +360,13 @@ function openLightbox(index) {
 
   lb.querySelector('.lightbox-trash-btn')?.addEventListener('click', () => {
     trashItem(file.path || file.name, file.name);
+  });
+
+  lb.querySelector('.lightbox-rotate-ccw')?.addEventListener('click', () => {
+    rotateGalleryImage(file, 270, lb);
+  });
+  lb.querySelector('.lightbox-rotate-cw')?.addEventListener('click', () => {
+    rotateGalleryImage(file, 90, lb);
   });
 
   lb.querySelector('.lightbox-close').addEventListener('click', closeLightbox);

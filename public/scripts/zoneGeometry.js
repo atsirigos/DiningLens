@@ -1,10 +1,31 @@
 /** Zone coordinate helpers — shared by overlay, preview crops, and server cropper. */
 
-export function getEffectiveDimensions(naturalWidth, naturalHeight) {
-  if (naturalHeight > naturalWidth) {
-    return { width: naturalHeight, height: naturalWidth, rotated: true };
+export function normalizeOrientation(deg) {
+  const steps = ((Math.round(Number(deg) || 0) % 360) + 360) % 360;
+  return [0, 90, 180, 270].includes(steps) ? steps : 0;
+}
+
+export function getDefaultOrientation(naturalWidth, naturalHeight) {
+  return naturalHeight > naturalWidth ? 90 : 0;
+}
+
+export function resolveOrientation(naturalWidth, naturalHeight, orientationDeg) {
+  if (orientationDeg != null && orientationDeg !== '') {
+    return normalizeOrientation(orientationDeg);
   }
-  return { width: naturalWidth, height: naturalHeight, rotated: false };
+  return getDefaultOrientation(naturalWidth, naturalHeight);
+}
+
+export function getEffectiveDimensions(naturalWidth, naturalHeight, orientationDeg = null) {
+  const orient = resolveOrientation(naturalWidth, naturalHeight, orientationDeg);
+  const swap = orient === 90 || orient === 270;
+
+  return {
+    width: swap ? naturalHeight : naturalWidth,
+    height: swap ? naturalWidth : naturalHeight,
+    orientationDeg: orient,
+    rotated: orient !== 0,
+  };
 }
 
 export function zoneToLandscapePixels(zone, effWidth, effHeight) {
@@ -35,10 +56,12 @@ export function clampRect(rect, maxW, maxH) {
 /**
  * Build a landscape-oriented canvas from an image, matching the Zones editor transform.
  */
-export function drawLandscapeCanvas(img) {
-  const { width: effW, height: effH, rotated } = getEffectiveDimensions(
+export function drawLandscapeCanvas(img, orientationDeg = null) {
+  const orient = resolveOrientation(img.naturalWidth, img.naturalHeight, orientationDeg);
+  const { width: effW, height: effH } = getEffectiveDimensions(
     img.naturalWidth,
     img.naturalHeight,
+    orient,
   );
 
   const canvas = document.createElement('canvas');
@@ -46,13 +69,15 @@ export function drawLandscapeCanvas(img) {
   canvas.height = effH;
   const ctx = canvas.getContext('2d');
 
-  if (rotated) {
-    ctx.translate(effW, 0);
-    ctx.rotate(Math.PI / 2);
-    ctx.drawImage(img, 0, 0, effH, effW);
-  } else {
-    ctx.drawImage(img, 0, 0, effW, effH);
-  }
+  ctx.translate(effW / 2, effH / 2);
+  ctx.rotate((orient * Math.PI) / 180);
+  ctx.drawImage(
+    img,
+    -img.naturalWidth / 2,
+    -img.naturalHeight / 2,
+    img.naturalWidth,
+    img.naturalHeight,
+  );
 
   return { canvas, effW, effH };
 }
@@ -60,8 +85,8 @@ export function drawLandscapeCanvas(img) {
 /**
  * Crop a zone from an image using the same transform as the Zones editor / overlay.
  */
-export function cropZoneToDataUrl(img, zone, quality = 0.9) {
-  const { canvas: landscape, effW, effH } = drawLandscapeCanvas(img);
+export function cropZoneToDataUrl(img, zone, quality = 0.9, orientationDeg = null) {
+  const { canvas: landscape, effW, effH } = drawLandscapeCanvas(img, orientationDeg);
   const rect = zoneToLandscapePixels(zone, effW, effH);
 
   const crop = document.createElement('canvas');

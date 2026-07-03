@@ -229,7 +229,7 @@ async function analyzeImage(filePath, settings, userContext, meta = {}) {
     return analyzeImageData(base64, mimeType, settings, userContext, callMeta);
   }
 
-  const crops = await cropAllZones(filePath, zones);
+  const crops = await cropAllZones(filePath, zones, settings?.referenceOrientation);
   if (crops.length === 0) {
     throw new Error('No valid zones configured for cropping');
   }

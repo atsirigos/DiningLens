@@ -1,6 +1,14 @@
 const path = require('node:path');
 const fs = require('node:fs/promises');
-const { ensureConnected, takePhoto, getActiveDevice } = require('./androidCamera');
+const {
+  ensureConnected,
+  takePhoto,
+  getActiveDevice,
+  ensureConnectedForDevice,
+  deletePhonePhotos,
+  closePhoneScreen,
+} = require('./androidCamera');
+const { getSettings } = require('./db/settingsStore');
 
 const ROOT = path.join(__dirname, '..');
 const DATA_DIR = path.join(ROOT, 'data');
@@ -13,12 +21,14 @@ const MAX_INTERVAL_SECONDS = 600;
 const MIN_MAX_MINUTES = 1;
 const MAX_MAX_MINUTES = 240;
 const MAX_CONSECUTIVE_FAILURES = 5;
+const CAPTURE_IN_FLIGHT_TIMEOUT_MS = 30000;
 
 let session = null;
 let intervalTimer = null;
 let maxDurationTimer = null;
 let captureInFlight = false;
 let nextCaptureAt = null;
+let finalizePromise = null;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -99,6 +109,7 @@ function getBaseStatus() {
       elapsedMs: 0,
       remainingMs: 0,
       nextCaptureInMs: null,
+      phoneCleanup: null,
     };
   }
 
@@ -120,6 +131,94 @@ function getBaseStatus() {
   };
 }
 
+async function waitForCaptureInFlight() {
+  const deadline = Date.now() + CAPTURE_IN_FLIGHT_TIMEOUT_MS;
+  while (captureInFlight && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 200));
+  }
+}
+
+async function runPhoneCleanup(activeSession) {
+  const phoneCleanup = {
+    deletedCount: 0,
+    failed: [],
+    screenClosed: false,
+  };
+
+  if (!activeSession?.device) {
+    return phoneCleanup;
+  }
+
+  try {
+    const serial = await ensureConnectedForDevice(activeSession.device);
+    const dcim = getSettings().phone?.dcim;
+
+    if (activeSession.phoneFiles?.length) {
+      const { deleted, failed } = await deletePhonePhotos(
+        serial,
+        activeSession.phoneFiles,
+        { dcim },
+      );
+      phoneCleanup.deletedCount = deleted.length;
+      phoneCleanup.failed = failed;
+    }
+
+    phoneCleanup.screenClosed = await closePhoneScreen(serial);
+  } catch (err) {
+    console.error('[recording] phone cleanup failed:', err.message);
+    phoneCleanup.error = err.message;
+    try {
+      const serial = await ensureConnectedForDevice(activeSession.device);
+      phoneCleanup.screenClosed = await closePhoneScreen(serial);
+    } catch {
+      phoneCleanup.screenClosed = false;
+    }
+  }
+
+  return phoneCleanup;
+}
+
+async function finalizeRecording(reason) {
+  if (finalizePromise) {
+    await finalizePromise;
+    return getStatus();
+  }
+
+  if (!session || (session.status !== 'recording' && session.status !== 'error')) {
+    return getStatus();
+  }
+
+  finalizePromise = (async () => {
+    const activeSession = session;
+    const terminalStatus = reason === 'too_many_failures' ? 'error' : 'stopped';
+
+    activeSession.status = terminalStatus;
+    activeSession.stoppedAt = activeSession.stoppedAt || new Date().toISOString();
+    activeSession.stopReason = reason;
+    clearTimers();
+
+    console.log(
+      `[recording] finalizing (${reason}, ${activeSession.framesCaptured} frames)`,
+    );
+
+    await waitForCaptureInFlight();
+    activeSession.phoneCleanup = await runPhoneCleanup(activeSession);
+
+    console.log(
+      `[recording] phone cleanup: deleted ${activeSession.phoneCleanup.deletedCount}, `
+      + `screen closed: ${activeSession.phoneCleanup.screenClosed}`,
+    );
+  })();
+
+  try {
+    await finalizePromise;
+  } finally {
+    finalizePromise = null;
+  }
+
+  return getStatus();
+}
+
 async function captureFrame() {
   if (!session || session.status !== 'recording' || captureInFlight) {
     return;
@@ -134,6 +233,7 @@ async function captureFrame() {
     const frame = buildFrame(session.sessionId, file);
     session.frames.push(frame);
     session.framesCaptured += 1;
+    session.phoneFiles.push(file);
     session.lastError = null;
     session.consecutiveFailures = 0;
     session.errors = session.errors.slice(-9);
@@ -148,10 +248,11 @@ async function captureFrame() {
     console.error('[recording] capture failed:', err.message);
 
     if (session.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-      session.status = 'error';
-      session.stoppedAt = new Date().toISOString();
-      session.stopReason = 'too_many_failures';
-      clearTimers();
+      Promise.resolve().then(() => {
+        finalizeRecording('too_many_failures').catch((err) => {
+          console.error('[recording] failure finalize failed:', err.message);
+        });
+      });
     }
   } finally {
     captureInFlight = false;
@@ -191,6 +292,7 @@ async function startRecording({ intervalSeconds, maxMinutes } = {}) {
 
   clearTimers();
   captureInFlight = false;
+  finalizePromise = null;
 
   session = {
     status: 'recording',
@@ -208,9 +310,11 @@ async function startRecording({ intervalSeconds, maxMinutes } = {}) {
     maxDurationMs,
     framesCaptured: 0,
     frames: [],
+    phoneFiles: [],
     lastError: null,
     errors: [],
     consecutiveFailures: 0,
+    phoneCleanup: null,
   };
 
   await captureFrame();
@@ -218,28 +322,21 @@ async function startRecording({ intervalSeconds, maxMinutes } = {}) {
 
   maxDurationTimer = setTimeout(() => {
     if (session?.status === 'recording') {
-      session.status = 'stopped';
-      session.stoppedAt = new Date().toISOString();
-      session.stopReason = 'max_duration';
-      clearTimers();
-      console.log(`[recording] stopped after max duration (${maxMins} min)`);
+      finalizeRecording('max_duration').catch((err) => {
+        console.error('[recording] max duration finalize failed:', err.message);
+      });
     }
   }, maxDurationMs);
 
   return getStatus();
 }
 
-function stopRecording() {
+async function stopRecording() {
   if (!session || session.status !== 'recording') {
     return getStatus();
   }
 
-  session.status = 'stopped';
-  session.stoppedAt = new Date().toISOString();
-  session.stopReason = session.stopReason || 'manual';
-  clearTimers();
-  console.log(`[recording] stopped manually (${session.framesCaptured} frames)`);
-  return getStatus();
+  return finalizeRecording('manual');
 }
 
 function getStatus() {

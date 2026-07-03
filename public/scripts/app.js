@@ -3,6 +3,7 @@ const loadedModules = {};
 const TAB_MODULES = {
   settings: () => import('./settings.js'),
   phone: () => import('./phone.js'),
+  'phone-status': () => import('./phoneStatus.js'),
   recording: () => import('./recording.js'),
   zones: () => import('./zones.js'),
   gallery: () => import('./gallery.js'),
@@ -14,9 +15,12 @@ const TAB_MODULES = {
 let activeTab = 'settings';
 
 async function cleanupTab(tabName) {
-  if (tabName !== 'phone') return;
+  const modulesWithDestroy = ['phone', 'phone-status'];
+  if (!modulesWithDestroy.includes(tabName)) return;
   try {
-    const mod = await TAB_MODULES.phone();
+    const loader = TAB_MODULES[tabName];
+    if (!loader) return;
+    const mod = await loader();
     if (mod.destroy) mod.destroy();
   } catch {
     /* ignore cleanup errors */

@@ -25,9 +25,9 @@ router.post('/recording/start', async (req, res) => {
   }
 });
 
-router.post('/recording/stop', (req, res) => {
+router.post('/recording/stop', async (req, res) => {
   try {
-    res.json(stopRecording());
+    res.json(await stopRecording());
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to stop recording' });
   }

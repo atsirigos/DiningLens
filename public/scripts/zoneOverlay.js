@@ -1,8 +1,16 @@
 /** Shared zone layout helpers — matches the Zones editor display logic. */
 
-import { getEffectiveDimensions } from './zoneGeometry.js';
+import {
+  getEffectiveDimensions,
+  resolveOrientation,
+} from './zoneGeometry.js';
 
-export { getEffectiveDimensions } from './zoneGeometry.js';
+export {
+  getEffectiveDimensions,
+  resolveOrientation,
+  normalizeOrientation,
+  getDefaultOrientation,
+} from './zoneGeometry.js';
 
 export function computeImageRect(effW, effH, frameW, frameH) {
   const frameAspect = frameW / frameH;
@@ -28,23 +36,15 @@ export function computeImageRect(effW, effH, frameW, frameH) {
 
 function clearZoneMount(host) {
   host.querySelector('.zone-overlay-layer')?.remove();
-  const rotWrap = host.querySelector('.zone-rot-wrap');
-  if (rotWrap) {
-    const img = rotWrap.querySelector('img');
-    if (img) host.insertBefore(img, rotWrap);
-    rotWrap.remove();
-  }
+  host.querySelector('.zone-orient-wrap')?.remove();
   const img = host.querySelector('img');
-  if (img) {
-    img.removeAttribute('style');
-  }
+  if (img) img.removeAttribute('style');
 }
 
 /**
  * Mount zone boxes over an image inside a positioned container.
- * Portrait images are rotated to match the Zones editor (wide side horizontal).
  */
-export function mountZoneOverlay(host, img, zones) {
+export function mountZoneOverlay(host, img, zones, orientationDeg = null) {
   clearZoneMount(host);
 
   if (!zones?.length || !img.naturalWidth) return;
@@ -53,27 +53,51 @@ export function mountZoneOverlay(host, img, zones) {
 
   const frameW = host.clientWidth || img.clientWidth;
   const frameH = host.clientHeight || img.clientHeight || frameW / (16 / 9);
-  const { width: effW, height: effH, rotated } = getEffectiveDimensions(img.naturalWidth, img.naturalHeight);
+  const orient = resolveOrientation(img.naturalWidth, img.naturalHeight, orientationDeg);
+  const { width: effW, height: effH } = getEffectiveDimensions(
+    img.naturalWidth,
+    img.naturalHeight,
+    orient,
+  );
   const imageRect = computeImageRect(effW, effH, frameW, frameH);
 
-  if (rotated) {
-    const rotWrap = document.createElement('div');
-    rotWrap.className = 'zone-rot-wrap';
-    rotWrap.style.left = `${imageRect.x + imageRect.w}px`;
-    rotWrap.style.top = `${imageRect.y}px`;
-    host.insertBefore(rotWrap, img);
-    rotWrap.appendChild(img);
-    img.style.width = `${imageRect.h}px`;
-    img.style.height = `${imageRect.w}px`;
-    img.style.display = 'block';
-  } else {
+  const wrap = document.createElement('div');
+  wrap.className = 'zone-orient-wrap';
+  wrap.style.left = `${imageRect.x}px`;
+  wrap.style.top = `${imageRect.y}px`;
+  wrap.style.width = `${imageRect.w}px`;
+  wrap.style.height = `${imageRect.h}px`;
+
+  if (!orient) {
     img.style.position = 'absolute';
-    img.style.left = `${imageRect.x}px`;
-    img.style.top = `${imageRect.y}px`;
+    img.style.left = '0';
+    img.style.top = '0';
     img.style.width = `${imageRect.w}px`;
     img.style.height = `${imageRect.h}px`;
     img.style.objectFit = 'fill';
+    wrap.appendChild(img);
+  } else {
+    const inner = document.createElement('div');
+    inner.className = 'zone-orient-inner';
+    inner.style.width = `${imageRect.w}px`;
+    inner.style.height = `${imageRect.h}px`;
+    inner.style.transform = `rotate(${orient}deg)`;
+
+    if (orient === 90 || orient === 270) {
+      img.style.width = `${imageRect.h}px`;
+      img.style.height = `${imageRect.w}px`;
+    } else {
+      img.style.width = `${imageRect.w}px`;
+      img.style.height = `${imageRect.h}px`;
+    }
+    img.style.display = 'block';
+    img.style.objectFit = 'fill';
+
+    inner.appendChild(img);
+    wrap.appendChild(inner);
   }
+
+  host.appendChild(wrap);
 
   const layer = document.createElement('div');
   layer.className = 'zone-overlay-layer';

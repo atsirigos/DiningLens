@@ -1,10 +1,28 @@
 /** Zone coordinate helpers — keep in sync with public/scripts/zoneGeometry.js */
 
-function getEffectiveDimensions(width, height) {
-  if (height > width) {
-    return { width: height, height: width, rotated: true };
+const { normalizeOrientation } = require('./imageRotate');
+
+function getDefaultOrientation(width, height) {
+  return height > width ? 90 : 0;
+}
+
+function resolveOrientation(width, height, orientationDeg) {
+  if (orientationDeg != null && orientationDeg !== '') {
+    return normalizeOrientation(orientationDeg);
   }
-  return { width, height, rotated: false };
+  return getDefaultOrientation(width, height);
+}
+
+function getEffectiveDimensions(width, height, orientationDeg = null) {
+  const orient = resolveOrientation(width, height, orientationDeg);
+  const swap = orient === 90 || orient === 270;
+
+  return {
+    width: swap ? height : width,
+    height: swap ? width : height,
+    orientationDeg: orient,
+    rotated: orient !== 0,
+  };
 }
 
 function clampRect(rect, maxW, maxH) {
@@ -33,6 +51,8 @@ function zoneToLandscapePixels(zone, effWidth, effHeight) {
 }
 
 module.exports = {
+  getDefaultOrientation,
+  resolveOrientation,
   getEffectiveDimensions,
   clampRect,
   zoneToLandscapePixels,

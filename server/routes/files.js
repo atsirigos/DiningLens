@@ -4,6 +4,7 @@ const express = require('express');
 const { scanDataFolder } = require('../utils/fileScanner');
 const { getSettings } = require('../db/settingsStore');
 const { cropZoneFromPhoto } = require('../utils/zoneCropper');
+const { rotateImageFile, normalizeOrientation } = require('../utils/imageRotate');
 
 const router = express.Router();
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
@@ -66,13 +67,42 @@ router.get('/zone-crop', async (req, res) => {
       return res.status(404).json({ error: `Zone "${zoneName}" not found in settings` });
     }
 
-    const image = await cropZoneFromPhoto(filePath, zoneConfig);
+    const image = await cropZoneFromPhoto(filePath, zoneConfig, settings.referenceOrientation);
     const buffer = Buffer.from(image.base64, 'base64');
     res.setHeader('Content-Type', image.mimeType);
     res.setHeader('Cache-Control', 'private, max-age=3600');
     res.send(buffer);
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to crop zone' });
+  }
+});
+
+router.post('/files/rotate', async (req, res) => {
+  try {
+    const { path: filePath, degrees } = req.body || {};
+    if (!filePath) {
+      return res.status(400).json({ error: 'path is required' });
+    }
+
+    const resolved = resolveSafePath(filePath);
+    if (!resolved) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    const ext = path.extname(resolved).toLowerCase();
+    if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) {
+      return res.status(400).json({ error: 'Only image files can be rotated' });
+    }
+
+    const rotation = normalizeOrientation(degrees ?? 90);
+    if (rotation === 0) {
+      return res.status(400).json({ error: 'degrees must be 90, 180, or 270' });
+    }
+
+    await rotateImageFile(resolved, rotation);
+    res.json({ success: true, path: filePath, degrees: rotation });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to rotate image' });
   }
 });
 

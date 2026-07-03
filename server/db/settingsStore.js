@@ -1,3 +1,4 @@
+const { normalizeOrientation } = require('../utils/imageRotate');
 const path = require('path');
 const fs = require('fs');
 const { getDb } = require('./database');
@@ -13,6 +14,7 @@ const DEFAULT_PHONE = {
   devices: [],
   defaultDeviceId: null,
   activeDeviceId: null,
+  frameRotation: 0,
 };
 
 function makeDeviceId() {
@@ -46,6 +48,7 @@ function normalizeDevice(raw) {
 const DEFAULTS = {
   zones: [],
   referenceImage: null,
+  referenceOrientation: null,
   ai: { ...DEFAULT_AI },
   phone: { ...DEFAULT_PHONE },
 };
@@ -105,6 +108,7 @@ function normalizePhone(phone) {
     devices,
     defaultDeviceId,
     activeDeviceId,
+    frameRotation: normalizeOrientation(raw.frameRotation),
   };
 }
 
@@ -112,6 +116,9 @@ function normalize(settings) {
   return {
     zones: Array.isArray(settings?.zones) ? settings.zones : DEFAULTS.zones,
     referenceImage: settings?.referenceImage ?? DEFAULTS.referenceImage,
+    referenceOrientation: settings?.referenceOrientation != null
+      ? normalizeOrientation(settings.referenceOrientation)
+      : null,
     ai: { ...DEFAULT_AI, ...settings?.ai },
     phone: normalizePhone(settings?.phone),
   };

@@ -4,6 +4,7 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const { getSettings } = require('./db/settingsStore');
 const { getBundledAdbPath } = require('./adbInstaller');
+const { rotateImageFile } = require('./utils/imageRotate');
 
 const execFileAsync = promisify(execFile);
 
@@ -286,7 +287,228 @@ async function takePhoto({ device, warmupMs = 2500, destDir = CAPTURE_DIR } = {}
   const localPath = path.join(destDir, file);
   await adb(['-s', serial, 'pull', `${dcim}/${file}`, localPath], { timeout: 60000 });
 
+  const frameRotation = getSettings().phone?.frameRotation || 0;
+  if (frameRotation) {
+    await rotateImageFile(localPath, frameRotation);
+  }
+
   return { file, localPath, deviceId: targetDevice?.id || null, deviceName: targetDevice?.name || serial };
+}
+
+function sanitizePhoneFilename(filename) {
+  const name = String(filename || '').trim();
+  if (!name || name.includes('/') || name.includes('..')) return null;
+  return name;
+}
+
+async function deletePhonePhotos(serial, filenames, { dcim } = {}) {
+  const dcimPath = dcim || getPhoneConfig().dcim;
+  const safeFiles = [...new Set(
+    (filenames || []).map(sanitizePhoneFilename).filter(Boolean),
+  )];
+
+  if (!safeFiles.length) {
+    return { deleted: [], failed: [] };
+  }
+
+  const deleted = [];
+  const failed = [];
+  const quoted = safeFiles.map((f) => `"${dcimPath}/${f.replace(/"/g, '')}"`).join(' ');
+
+  try {
+    await adbShell(serial, `rm -f ${quoted}`);
+    deleted.push(...safeFiles);
+  } catch (err) {
+    for (const file of safeFiles) {
+      try {
+        await adbShell(serial, `rm -f "${dcimPath}/${file.replace(/"/g, '')}"`);
+        deleted.push(file);
+      } catch (fileErr) {
+        failed.push({ file, error: fileErr.message });
+      }
+    }
+  }
+
+  return { deleted, failed };
+}
+
+async function closePhoneScreen(serial) {
+  try {
+    await adbShell(serial, 'input keyevent 3');
+    return true;
+  } catch (err) {
+    console.warn('[androidCamera] closePhoneScreen failed:', err.message);
+    return false;
+  }
+}
+
+function parseBatteryDump(output) {
+  const text = output || '';
+  const levelMatch = text.match(/level:\s*(\d+)/i);
+  const statusMatch = text.match(/status:\s*(\d+)/i);
+  const tempMatch = text.match(/temperature:\s*(\d+)/i);
+
+  const level = levelMatch ? Number(levelMatch[1]) : null;
+  const status = statusMatch ? Number(statusMatch[1]) : null;
+  const temperatureRaw = tempMatch ? Number(tempMatch[1]) : null;
+
+  return {
+    level: Number.isFinite(level) ? level : null,
+    charging: status === 2 || status === 5,
+    temperatureCelsius: Number.isFinite(temperatureRaw) ? temperatureRaw / 10 : null,
+  };
+}
+
+function parseStorageLine(line) {
+  const parts = line.trim().split(/\s+/);
+  if (parts.length < 4) return null;
+
+  const sizeStr = parts[1];
+  const usedStr = parts[2];
+  const humanSize = /^[\d.]+[KMGT]?$/i.test(sizeStr);
+
+  if (humanSize) {
+    const parseHuman = (value) => {
+      const match = String(value).match(/^([\d.]+)([KMGT])?$/i);
+      if (!match) return null;
+      const num = Number(match[1]);
+      const unit = (match[2] || '').toUpperCase();
+      const multipliers = { K: 1024, M: 1024 ** 2, G: 1024 ** 3, T: 1024 ** 4 };
+      return Number.isFinite(num) ? Math.round(num * (multipliers[unit] || 1)) : null;
+    };
+
+    const totalBytes = parseHuman(sizeStr);
+    const usedBytes = parseHuman(usedStr);
+    if (!totalBytes || usedBytes == null) return null;
+
+    return {
+      mount: parts[parts.length - 1],
+      totalBytes,
+      usedBytes,
+      usedPercent: totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : null,
+    };
+  }
+
+  const totalBlocks = Number(parts[1]);
+  const usedBlocks = Number(parts[2]);
+  const blockSize = 1024;
+
+  if (!Number.isFinite(totalBlocks) || !Number.isFinite(usedBlocks)) {
+    return null;
+  }
+
+  const totalBytes = totalBlocks * blockSize;
+  const usedBytes = usedBlocks * blockSize;
+
+  return {
+    mount: parts[parts.length - 1],
+    totalBytes,
+    usedBytes,
+    usedPercent: totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : null,
+  };
+}
+
+async function getStorageInfo(serial) {
+  for (const mount of ['/sdcard', '/data']) {
+    try {
+      const out = await adbShell(serial, `df -k ${mount} 2>/dev/null || df ${mount}`);
+      const line = out.split('\n').slice(1).find((l) => l.trim());
+      const parsed = parseStorageLine(line || '');
+      if (parsed) {
+        return { ...parsed, mount };
+      }
+    } catch {
+      /* try next mount */
+    }
+  }
+  return null;
+}
+
+function parseLocationDump(output) {
+  const text = output || '';
+
+  const bracketMatch = text.match(
+    /Location\[(\w+)\s+(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s+.*?(?:acc=|hAcc=)([\d.]+)/i,
+  );
+  if (bracketMatch) {
+    return {
+      available: true,
+      provider: bracketMatch[1],
+      latitude: Number(bracketMatch[2]),
+      longitude: Number(bracketMatch[3]),
+      accuracyMeters: Number(bracketMatch[4]),
+      updatedAt: null,
+    };
+  }
+
+  const latMatch = text.match(/lat(?:itude)?[=:]\s*(-?\d+(?:\.\d+)?)/i);
+  const lngMatch = text.match(/(?:lng|lon|longitude)[=:]\s*(-?\d+(?:\.\d+)?)/i);
+  const accMatch = text.match(/(?:accuracy|acc)[=:]\s*([\d.]+)/i);
+
+  if (latMatch && lngMatch) {
+    return {
+      available: true,
+      provider: null,
+      latitude: Number(latMatch[1]),
+      longitude: Number(lngMatch[1]),
+      accuracyMeters: accMatch ? Number(accMatch[1]) : null,
+      updatedAt: null,
+    };
+  }
+
+  if (/location.*disabled|gps.*disabled|no location/i.test(text)) {
+    return { available: false, reason: 'Location services disabled on device' };
+  }
+
+  return { available: false, reason: 'No location fix available' };
+}
+
+async function getDeviceHealth(serial, device = null) {
+  const errors = [];
+  const fetchedAt = new Date().toISOString();
+
+  let battery = { level: null, charging: false, temperatureCelsius: null };
+  try {
+    const out = await adbShell(serial, 'dumpsys battery');
+    battery = parseBatteryDump(out);
+  } catch (err) {
+    errors.push({ metric: 'battery', error: err.message });
+  }
+
+  let storage = { usedBytes: null, totalBytes: null, usedPercent: null, mount: null };
+  try {
+    const info = await getStorageInfo(serial);
+    if (info) {
+      storage = info;
+    } else {
+      errors.push({ metric: 'storage', error: 'Could not read storage info' });
+    }
+  } catch (err) {
+    errors.push({ metric: 'storage', error: err.message });
+  }
+
+  let location = { available: false, reason: 'Unknown' };
+  try {
+    const out = await adbShell(serial, 'dumpsys location');
+    location = parseLocationDump(out);
+  } catch (err) {
+    location = { available: false, reason: err.message };
+    errors.push({ metric: 'location', error: err.message });
+  }
+
+  const targetDevice = device || getActiveDevice();
+
+  return {
+    connected: true,
+    device: targetDevice
+      ? { id: targetDevice.id, name: targetDevice.name, serial: targetDevice.serial }
+      : { id: null, name: null, serial },
+    battery,
+    storage,
+    location,
+    fetchedAt,
+    errors,
+  };
 }
 
 module.exports = {
@@ -308,4 +530,7 @@ module.exports = {
   ensureConnected,
   ensureConnectedForDevice,
   takePhoto,
+  deletePhonePhotos,
+  closePhoneScreen,
+  getDeviceHealth,
 };

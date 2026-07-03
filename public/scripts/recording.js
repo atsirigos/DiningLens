@@ -6,6 +6,7 @@ const POLL_INTERVAL_MS = 2500;
 const DEFAULT_PLAYBACK_FPS = 5;
 
 let status = null;
+let phoneSettings = { frameRotation: 0 };
 let pollTimer = null;
 let starting = false;
 let stopping = false;
@@ -69,6 +70,27 @@ function stopReasonLabel() {
     default:
       return '';
   }
+}
+
+function phoneCleanupLabel() {
+  const cleanup = status?.phoneCleanup;
+  if (!cleanup) return '';
+
+  const parts = [];
+  if (cleanup.deletedCount > 0) {
+    parts.push(`Removed ${cleanup.deletedCount} photo${cleanup.deletedCount === 1 ? '' : 's'} from phone`);
+  }
+  if (cleanup.screenClosed) {
+    parts.push('phone screen closed');
+  }
+  if (cleanup.failed?.length) {
+    parts.push(`${cleanup.failed.length} delete failure${cleanup.failed.length === 1 ? '' : 's'}`);
+  }
+  if (cleanup.error) {
+    parts.push(`cleanup error: ${cleanup.error}`);
+  }
+
+  return parts.length ? parts.join('; ') + '.' : '';
 }
 
 function progressPercent() {
@@ -244,6 +266,18 @@ function renderConfigCard() {
             ${isRecording ? 'disabled' : ''}
           >
         </div>
+        <div class="form-group">
+          <label for="recording-frame-rotation">Camera photo rotation</label>
+          <select id="recording-frame-rotation" ${isRecording ? 'disabled' : ''}>
+            <option value="0" ${phoneSettings.frameRotation === 0 ? 'selected' : ''}>0° (no rotation)</option>
+            <option value="90" ${phoneSettings.frameRotation === 90 ? 'selected' : ''}>90° clockwise</option>
+            <option value="180" ${phoneSettings.frameRotation === 180 ? 'selected' : ''}>180°</option>
+            <option value="270" ${phoneSettings.frameRotation === 270 ? 'selected' : ''}>270° clockwise</option>
+          </select>
+          <p class="form-hint" style="margin-top: 0.35rem; font-size: 0.8rem; color: var(--color-text-muted);">
+            Applies to every photo captured from the phone until you change it again.
+          </p>
+        </div>
       </div>
       <div class="recording-actions">
         <button
@@ -319,6 +353,10 @@ function renderStatusCard() {
 
       <p class="recording-inline-note" id="recording-stop-reason" ${status?.stopReason ? '' : 'hidden'}>
         ${status?.stopReason ? stopReasonLabel() : ''}
+      </p>
+
+      <p class="recording-inline-note" id="recording-phone-cleanup" ${status?.phoneCleanup ? '' : 'hidden'}>
+        ${status?.phoneCleanup ? phoneCleanupLabel() : ''}
       </p>
     </div>`;
 }
@@ -415,6 +453,12 @@ function updateLiveStatus() {
   if (stopReason) {
     stopReason.hidden = !status?.stopReason;
     stopReason.textContent = status?.stopReason ? stopReasonLabel() : '';
+  }
+
+  const phoneCleanup = document.getElementById('recording-phone-cleanup');
+  if (phoneCleanup) {
+    phoneCleanup.hidden = !status?.phoneCleanup;
+    phoneCleanup.textContent = status?.phoneCleanup ? phoneCleanupLabel() : '';
   }
 
   const newFrameCount = status?.framesCaptured ?? 0;
@@ -561,12 +605,32 @@ function bindEvents() {
       if (playbackPlaying) startPlayback();
     });
   }
+
+  document.getElementById('recording-frame-rotation')?.addEventListener('change', async (e) => {
+    const frameRotation = Number(e.target.value) || 0;
+    try {
+      await apiFetch('/api/phone/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frameRotation }),
+      });
+      phoneSettings.frameRotation = frameRotation;
+      showToast(`Camera rotation set to ${frameRotation}°`, 'success');
+    } catch (err) {
+      showToast(err.message, 'error');
+      e.target.value = String(phoneSettings.frameRotation);
+    }
+  });
 }
 
 export async function init() {
   container().innerHTML = '<div class="loading-center"><div class="loading-spinner"></div></div>';
   try {
-    await loadStatus();
+    const [settings] = await Promise.all([
+      apiFetch('/api/settings'),
+      loadStatus(),
+    ]);
+    phoneSettings = { frameRotation: settings.phone?.frameRotation || 0 };
     render();
   } catch (err) {
     container().innerHTML = `

@@ -8,9 +8,12 @@ const {
   disconnectDevice,
   takePhoto,
   getActiveDevice,
+  ensureConnectedForDevice,
+  getDeviceHealth,
 } = require('../androidCamera');
 const { installAdb } = require('../adbInstaller');
 const { getSettings, saveSettings, makeDeviceId, normalizeDevice } = require('../db/settingsStore');
+const { normalizeOrientation } = require('../utils/imageRotate');
 
 let installPromise = null;
 
@@ -25,6 +28,7 @@ function sanitizePhoneConfig(phone) {
     devices: phone.devices || [],
     defaultDeviceId: phone.defaultDeviceId || null,
     activeDeviceId: phone.activeDeviceId || null,
+    frameRotation: phone.frameRotation || 0,
   };
 }
 
@@ -157,6 +161,50 @@ router.get('/phone/status', async (req, res) => {
   }
 });
 
+router.get('/phone/health', async (req, res) => {
+  try {
+    const adbStatus = await checkAdb();
+    if (!adbStatus.available) {
+      return res.status(503).json({ error: adbStatus.error || 'ADB is not available' });
+    }
+
+    const settings = getSettings();
+    const activeDevice = getActiveDevice();
+
+    if (!activeDevice) {
+      return res.status(400).json({ error: 'No active device configured. Add and select a device in Phone Configuration.' });
+    }
+
+    let liveDevices = [];
+    try {
+      liveDevices = await listDevices();
+    } catch (err) {
+      return res.status(503).json({ error: err.message || 'Could not list devices' });
+    }
+
+    const merged = mergeDeviceLists(settings.phone.devices, liveDevices);
+    const activeInfo = resolveActiveDeviceInfo(settings.phone, merged);
+
+    if (!activeInfo.connected) {
+      return res.status(503).json({
+        error: `Device "${activeDevice.name}" is not connected.`,
+        connected: false,
+        device: {
+          id: activeDevice.id,
+          name: activeDevice.name,
+          serial: activeDevice.serial,
+        },
+      });
+    }
+
+    const serial = await ensureConnectedForDevice(activeDevice);
+    const health = await getDeviceHealth(serial, activeDevice);
+    res.json(health);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to read phone health' });
+  }
+});
+
 router.post('/phone/install-adb', async (req, res) => {
   try {
     if (!installPromise) {
@@ -190,6 +238,9 @@ router.post('/phone/config', (req, res) => {
           ? { shutterKeycodes: incoming.shutterKeycodes }
           : {}),
         ...(incoming.address !== undefined ? { address: String(incoming.address).trim() } : {}),
+        ...(incoming.frameRotation !== undefined
+          ? { frameRotation: normalizeOrientation(incoming.frameRotation) }
+          : {}),
       },
     };
 

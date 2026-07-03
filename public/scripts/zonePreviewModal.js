@@ -8,11 +8,11 @@ function removeModal(modal) {
   modal?.remove();
 }
 
-function renderZoneCrops(host, img, zones) {
+function renderZoneCrops(host, img, zones, orientationDeg) {
   if (!host || !img?.naturalWidth) return;
 
   host.innerHTML = zones.map((zone) => {
-    const src = cropZoneToDataUrl(img, zone);
+    const src = cropZoneToDataUrl(img, zone, 0.9, orientationDeg);
     return `
       <figure class="analysis-zone-crop">
         <img src="${src}" alt="Crop: ${zone.name}" loading="eager">
@@ -26,7 +26,7 @@ function renderZoneCrops(host, img, zones) {
  * Crops are rendered client-side with the same transform as the Zones editor.
  * Resolves true if the user confirms, false if they cancel.
  */
-export function confirmZoneProcessing({ filename, filePath, zones }) {
+export function confirmZoneProcessing({ filename, filePath, zones, orientationDeg = null }) {
   if (!zones?.length) return Promise.resolve(true);
 
   return new Promise((resolve) => {
@@ -90,8 +90,8 @@ export function confirmZoneProcessing({ filename, filePath, zones }) {
 
     const drawPreview = () => {
       if (!host || !img?.naturalWidth) return;
-      mountZoneOverlay(host, img, zones);
-      renderZoneCrops(cropsHost, img, zones);
+      mountZoneOverlay(host, img, zones, orientationDeg);
+      renderZoneCrops(cropsHost, img, zones, orientationDeg);
     };
 
     if (img?.complete) drawPreview();

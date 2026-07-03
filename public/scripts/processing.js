@@ -134,6 +134,7 @@ async function processFile(filename) {
     filename,
     filePath: file?.path || filename,
     zones: appSettings.zones,
+    orientationDeg: appSettings.referenceOrientation,
   });
   if (!confirmed) return;
 
@@ -200,6 +201,7 @@ async function processAll() {
       filename: file.name,
       filePath: file.path || file.name,
       zones: appSettings.zones,
+      orientationDeg: appSettings.referenceOrientation,
     });
     if (!confirmed) {
       showToast('Batch processing cancelled', 'info');
