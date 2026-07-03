@@ -81,7 +81,7 @@ function phoneCleanupLabel() {
     parts.push(`Removed ${cleanup.deletedCount} photo${cleanup.deletedCount === 1 ? '' : 's'} from phone`);
   }
   if (cleanup.screenClosed) {
-    parts.push('phone screen closed');
+    parts.push('phone display turned off');
   }
   if (cleanup.failed?.length) {
     parts.push(`${cleanup.failed.length} delete failure${cleanup.failed.length === 1 ? '' : 's'}`);

@@ -138,6 +138,12 @@ async function waitForCaptureInFlight() {
   }
 }
 
+function getPhoneFilesToDelete(activeSession) {
+  const tracked = activeSession.phoneFiles || [];
+  const fromFrames = (activeSession.frames || []).map((frame) => frame.file).filter(Boolean);
+  return [...new Set([...tracked, ...fromFrames])];
+}
+
 async function runPhoneCleanup(activeSession) {
   const phoneCleanup = {
     deletedCount: 0,
@@ -152,11 +158,12 @@ async function runPhoneCleanup(activeSession) {
   try {
     const serial = await ensureConnectedForDevice(activeSession.device);
     const dcim = getSettings().phone?.dcim;
+    const filesToDelete = getPhoneFilesToDelete(activeSession);
 
-    if (activeSession.phoneFiles?.length) {
+    if (filesToDelete.length) {
       const { deleted, failed } = await deletePhonePhotos(
         serial,
-        activeSession.phoneFiles,
+        filesToDelete,
         { dcim },
       );
       phoneCleanup.deletedCount = deleted.length;

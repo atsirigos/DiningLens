@@ -301,8 +301,162 @@ function sanitizePhoneFilename(filename) {
   return name;
 }
 
-async function deletePhonePhotos(serial, filenames, { dcim } = {}) {
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function expandDcimPaths(dcimPath, filename) {
+  const paths = new Set();
+  const dcim = (dcimPath || '/sdcard/DCIM/Camera').replace(/\/+$/, '');
+
+  paths.add(`${dcim}/${filename}`);
+
+  if (dcim.startsWith('/sdcard/')) {
+    paths.add(`/storage/emulated/0${dcim.slice('/sdcard'.length)}/${filename}`);
+  }
+
+  if (dcim.startsWith('/storage/emulated/0/')) {
+    paths.add(`/sdcard${dcim.slice('/storage/emulated/0'.length)}/${filename}`);
+  }
+
+  paths.add(`/sdcard/DCIM/Camera/${filename}`);
+  paths.add(`/storage/emulated/0/DCIM/Camera/${filename}`);
+
+  return [...paths];
+}
+
+async function findPhonePhotoPaths(serial, filename) {
+  const safeName = sanitizePhoneFilename(filename);
+  if (!safeName) return [];
+
+  const dcim = getPhoneConfig().dcim;
+  const paths = new Set(expandDcimPaths(dcim, safeName));
+
+  try {
+    const found = await adbShell(
+      serial,
+      `find /sdcard/DCIM /storage/emulated/0/DCIM /sdcard/Pictures /storage/emulated/0/Pictures -name ${shellQuote(safeName)} 2>/dev/null`,
+    );
+    found.split('\n').map((line) => line.trim()).filter(Boolean).forEach((line) => paths.add(line));
+  } catch {
+    /* ignore find errors */
+  }
+
+  return [...paths];
+}
+
+async function phoneFileExists(serial, filePath) {
+  try {
+    const out = await adbShell(serial, `test -f ${shellQuote(filePath)} && echo 1 || echo 0`);
+    return out.trim() === '1';
+  } catch {
+    return false;
+  }
+}
+
+async function removeFromMediaStore(serial, filename, filePaths) {
+  const uris = [
+    'content://media/external/images/media',
+    'content://media/external/video/media',
+    'content://media/external/file',
+    'content://media/external/primary/images/media',
+    'content://media/external/primary/file',
+  ];
+
+  for (const uri of uris) {
+    try {
+      await adbShell(
+        serial,
+        `content delete --uri ${uri} --where "_display_name=${shellQuote(filename)}"`,
+      );
+    } catch {
+      /* ignore per-uri failures */
+    }
+
+    for (const filePath of filePaths) {
+      try {
+        await adbShell(
+          serial,
+          `content delete --uri ${uri} --where "_data=${shellQuote(filePath)}"`,
+        );
+      } catch {
+        /* ignore per-path failures */
+      }
+    }
+  }
+}
+
+async function refreshMediaStore(serial, dcimPath) {
+  const dcim = (dcimPath || '/sdcard/DCIM/Camera').replace(/\/+$/, '');
+  const scanPaths = [dcim];
+  if (dcim.startsWith('/sdcard/')) {
+    scanPaths.push(`/storage/emulated/0${dcim.slice('/sdcard'.length)}`);
+  }
+
+  for (const scanPath of scanPaths) {
+    const uri = scanPath.startsWith('/sdcard/')
+      ? `file:///storage/emulated/0${scanPath.slice('/sdcard'.length)}`
+      : `file://${scanPath}`;
+
+    try {
+      await adbShell(serial, `am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d ${shellQuote(uri)}`);
+    } catch {
+      /* ignore */
+    }
+
+    try {
+      await adbShell(serial, `cmd media scan-file ${shellQuote(scanPath)}`);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function deletePhonePhoto(serial, filename, { dcim } = {}) {
+  const safeName = sanitizePhoneFilename(filename);
+  if (!safeName) {
+    return { file: filename, deleted: false, error: 'Invalid filename' };
+  }
+
   const dcimPath = dcim || getPhoneConfig().dcim;
+  const filePaths = await findPhonePhotoPaths(serial, safeName);
+  let removedFromDisk = false;
+
+  for (const filePath of filePaths) {
+    try {
+      await adbShell(serial, `rm -f ${shellQuote(filePath)}`);
+      if (!(await phoneFileExists(serial, filePath))) {
+        removedFromDisk = true;
+      }
+    } catch (err) {
+      if (!removedFromDisk) {
+        return { file: safeName, deleted: false, error: err.message };
+      }
+    }
+  }
+
+  await removeFromMediaStore(serial, safeName, filePaths);
+  await refreshMediaStore(serial, dcimPath);
+
+  const stillOnDisk = [];
+  for (const filePath of filePaths) {
+    if (await phoneFileExists(serial, filePath)) {
+      stillOnDisk.push(filePath);
+    }
+  }
+
+  if (stillOnDisk.length) {
+    return {
+      file: safeName,
+      deleted: false,
+      error: `File still present on phone (${stillOnDisk.join(', ')})`,
+    };
+  }
+
+  return { file: safeName, deleted: true };
+}
+
+async function deletePhonePhotos(serial, filenames, { dcim } = {}) {
   const safeFiles = [...new Set(
     (filenames || []).map(sanitizePhoneFilename).filter(Boolean),
   )];
@@ -313,19 +467,13 @@ async function deletePhonePhotos(serial, filenames, { dcim } = {}) {
 
   const deleted = [];
   const failed = [];
-  const quoted = safeFiles.map((f) => `"${dcimPath}/${f.replace(/"/g, '')}"`).join(' ');
 
-  try {
-    await adbShell(serial, `rm -f ${quoted}`);
-    deleted.push(...safeFiles);
-  } catch (err) {
-    for (const file of safeFiles) {
-      try {
-        await adbShell(serial, `rm -f "${dcimPath}/${file.replace(/"/g, '')}"`);
-        deleted.push(file);
-      } catch (fileErr) {
-        failed.push({ file, error: fileErr.message });
-      }
+  for (const file of safeFiles) {
+    const result = await deletePhonePhoto(serial, file, { dcim });
+    if (result.deleted) {
+      deleted.push(file);
+    } else {
+      failed.push({ file, error: result.error || 'Delete failed' });
     }
   }
 
@@ -335,7 +483,24 @@ async function deletePhonePhotos(serial, filenames, { dcim } = {}) {
 async function closePhoneScreen(serial) {
   try {
     await adbShell(serial, 'input keyevent 3');
-    return true;
+    await new Promise((r) => setTimeout(r, 400));
+
+    const sleepCommands = [
+      'cmd power sleep',
+      'input keyevent 223',
+      'input keyevent 26',
+    ];
+
+    for (const cmd of sleepCommands) {
+      try {
+        await adbShell(serial, cmd);
+        return true;
+      } catch {
+        /* try next sleep method */
+      }
+    }
+
+    return false;
   } catch (err) {
     console.warn('[androidCamera] closePhoneScreen failed:', err.message);
     return false;
