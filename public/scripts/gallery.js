@@ -2,6 +2,7 @@ import { apiFetch, formatBytes, formatDate, showToast } from './utils.js';
 import {
   getActiveZoneName,
   renderGalleryAnalysisPanel,
+  renderMealSummary,
 } from './mealResults.js';
 import { mountZoneOverlay, highlightZoneOverlay } from './zoneOverlay.js';
 
@@ -12,6 +13,93 @@ let appSettings = { zones: [] };
 let lightboxIndex = -1;
 
 const container = () => document.getElementById('gallery-content');
+
+const PROCESSING_FOCUS_KEY = 'processingFocus';
+
+function getFileKey(file) {
+  if (!file) return '';
+  if (typeof file === 'string') return file;
+  return file.path || file.name || '';
+}
+
+function getResultForFile(file) {
+  const path = getFileKey(file);
+  if (!path) return null;
+  return results[path] || results[path.split('/').pop()] || null;
+}
+
+function goToProcessingForFrame(frame) {
+  const path = getFileKey(frame);
+  if (!path) return;
+
+  sessionStorage.setItem(PROCESSING_FOCUS_KEY, JSON.stringify({
+    path,
+    name: frame.name || path.split('/').pop(),
+  }));
+
+  closeLightbox();
+  document.querySelector('.nav-item[data-tab="processing"]')?.click();
+}
+
+function renderFrameResultsSnippet(frame) {
+  const result = getResultForFile(frame);
+  if (!result) {
+    return '<p class="recording-frame-no-results">Not processed</p>';
+  }
+  return `<div class="recording-frame-results-snippet">${renderMealSummary(result, { compact: true })}</div>`;
+}
+
+function renderRecordingFrameList(frames, activeIndex = 0) {
+  return `
+    <div class="recording-frame-list" id="recording-frame-list">
+      ${frames.map((frame, i) => {
+        const processed = Boolean(getResultForFile(frame));
+        return `
+          <div class="recording-frame-item${i === activeIndex ? ' is-active' : ''}" data-frame-index="${i}">
+            <button type="button" class="recording-frame-thumb-btn" aria-label="Show frame ${i + 1}">
+              <img src="/api/file/${encodeURIComponent(frame.path)}" alt="" loading="lazy">
+            </button>
+            <div class="recording-frame-item-body">
+              <div class="recording-frame-item-header">
+                <span class="recording-frame-item-name" title="${escapeAttr(frame.name)}">${escapeAttr(frame.name)}</span>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm recording-frame-process-btn"
+                  data-frame-path="${escapeAttr(frame.path)}"
+                >${processed ? 'Processing tab' : 'Process'}</button>
+              </div>
+              ${renderFrameResultsSnippet(frame)}
+            </div>
+          </div>`;
+      }).join('')}
+    </div>`;
+}
+
+function syncRecordingFrameListActive(lb, frameIndex) {
+  lb.querySelectorAll('.recording-frame-item').forEach((item) => {
+    item.classList.toggle('is-active', Number(item.dataset.frameIndex) === frameIndex);
+  });
+}
+
+function bindRecordingFrameList(lb, frames, onSelectFrame) {
+  lb.querySelectorAll('.recording-frame-thumb-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const item = btn.closest('.recording-frame-item');
+      const index = Number(item?.dataset.frameIndex);
+      if (!Number.isFinite(index)) return;
+      onSelectFrame(index);
+    });
+  });
+
+  lb.querySelectorAll('.recording-frame-process-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const path = btn.dataset.framePath;
+      const frame = frames.find((f) => f.path === path);
+      if (frame) goToProcessingForFrame(frame);
+    });
+  });
+}
 
 function getFilterState() {
   const search = document.getElementById('gallery-search')?.value.toLowerCase() || '';
@@ -108,6 +196,7 @@ function removeTrashPathFromState(itemPath) {
     if (!entry) return null;
 
     entry.frames = entry.frames.filter((frame) => frame.path !== itemPath);
+    delete results[itemPath];
     delete results[itemPath.split('/').pop()];
 
     if (!entry.frames.length) {
@@ -377,9 +466,11 @@ async function rotateGalleryImage(file, degrees, { lightbox = null, cardElement 
       body: JSON.stringify({ path: filePath, degrees }),
     });
 
-    if (results[fileName]) {
+    if (getResultForFile({ path: filePath, name: fileName })) {
       try {
-        await apiFetch(`/api/process/${encodeURIComponent(fileName)}`, { method: 'DELETE' });
+        const resultKey = getFileKey({ path: filePath, name: fileName });
+        await apiFetch(`/api/process/${encodeURIComponent(resultKey)}`, { method: 'DELETE' });
+        delete results[filePath];
         delete results[fileName];
       } catch {
         /* ignore cache clear errors */
@@ -416,9 +507,11 @@ async function rotateGalleryImage(file, degrees, { lightbox = null, cardElement 
 }
 
 function renderResultsPanel(file, activeTabId = 'all') {
-  const result = results[file.name];
+  const result = getResultForFile(file);
   if (!result) {
-    return '<p>No AI results yet. Process this file in the Processing tab.</p>';
+    return `
+      <p class="recording-frame-no-results">No AI results yet.</p>
+      <button type="button" class="btn btn-primary btn-sm gallery-inline-process-btn">Process</button>`;
   }
 
   let html = `<p class="analysis-processed-at"><strong>Processed:</strong> ${formatDate(result.processedAt)}</p>`;
@@ -426,23 +519,51 @@ function renderResultsPanel(file, activeTabId = 'all') {
   return html;
 }
 
-function bindAnalysisTabs(lightbox, file) {
-  const result = results[file.name];
-  if (!result) return;
+function updateRecordingFrameAnalysis(lb, frame) {
+  lb._analysisFile = frame;
 
-  const analysisBody = lightbox.querySelector('.lightbox-analysis-body');
-  if (!analysisBody) return;
+  const nameEl = lb.querySelector('#recording-current-frame-name');
+  if (nameEl) nameEl.textContent = frame.name;
 
-  analysisBody.addEventListener('click', (event) => {
+  const body = lb.querySelector('.recording-current-analysis-body');
+  if (body) body.innerHTML = renderResultsPanel(frame);
+}
+
+function bindLightboxInteractions(lb, initialFile = null) {
+  if (initialFile) lb._analysisFile = initialFile;
+  if (lb.dataset.lightboxBound) return;
+  lb.dataset.lightboxBound = '1';
+
+  lb.addEventListener('click', (event) => {
+    const processBtn = event.target.closest('.gallery-inline-process-btn');
+    if (processBtn && lb.contains(processBtn)) {
+      event.stopPropagation();
+      if (lb._analysisFile) goToProcessingForFrame(lb._analysisFile);
+      return;
+    }
+
     const tab = event.target.closest('[data-zone-tab]');
-    if (!tab || !analysisBody.contains(tab)) return;
+    if (!tab || !lb.contains(tab)) return;
+
+    const body = tab.closest('.lightbox-analysis-body');
+    if (!body) return;
+
+    const file = lb._analysisFile;
+    const result = file ? getResultForFile(file) : null;
+    if (!file || !result) return;
 
     const activeTabId = tab.dataset.zoneTab;
-    analysisBody.innerHTML = renderResultsPanel(file, activeTabId);
+    body.innerHTML = renderResultsPanel(file, activeTabId);
 
-    const highlightZone = getActiveZoneName(result, appSettings.zones, activeTabId);
-    highlightZoneOverlay(lightbox.querySelector('.lightbox-photo-host'), highlightZone);
+    const host = lb.querySelector('.lightbox-photo-host');
+    if (host && appSettings.zones?.length) {
+      highlightZoneOverlay(host, getActiveZoneName(result, appSettings.zones, activeTabId));
+    }
   });
+}
+
+function bindAnalysisTabs(lightbox, file) {
+  bindLightboxInteractions(lightbox, file);
 }
 
 function drawLightboxZones(lightbox) {
@@ -452,8 +573,10 @@ function drawLightboxZones(lightbox) {
 
   mountZoneOverlay(host, img, appSettings.zones, appSettings.referenceOrientation);
   const result = results[lightbox.dataset.filename];
-  if (result) {
-    highlightZoneOverlay(host, getActiveZoneName(result, appSettings.zones, 'all'));
+  const fileKey = lightbox.dataset.filepath || lightbox.dataset.filename;
+  const fileResult = result || results[fileKey];
+  if (fileResult) {
+    highlightZoneOverlay(host, getActiveZoneName(fileResult, appSettings.zones, 'all'));
   }
 }
 
@@ -497,6 +620,7 @@ function openLightbox(index) {
   const lb = document.createElement('div');
   lb.className = 'lightbox';
   lb.dataset.filename = file.name;
+  lb.dataset.filepath = file.path || file.name;
   lb.innerHTML = `
     <div class="lightbox-content">
       <button class="btn btn-ghost lightbox-close" aria-label="Close">✕</button>
@@ -532,7 +656,7 @@ function openLightbox(index) {
     lb._zoneResize = drawZones;
   }
 
-  bindAnalysisTabs(lb, file);
+  bindLightboxInteractions(lb, file);
 
   lb.querySelector('.lightbox-trash-btn')?.addEventListener('click', () => {
     trashItem(file.path || file.name, file.name);
@@ -563,6 +687,7 @@ function openRecordingLightbox(index) {
   const lb = document.createElement('div');
   lb.className = 'lightbox';
   lb.dataset.filename = file.name;
+  lb.dataset.filepath = file.path || file.name;
   lb.innerHTML = `
     <div class="lightbox-content">
       <button class="btn btn-ghost lightbox-close" aria-label="Close">✕</button>
@@ -603,10 +728,14 @@ function openRecordingLightbox(index) {
           <button type="button" class="btn btn-danger btn-sm lightbox-trash-recording-btn" data-trash-path="${file.path}" data-trash-label="${file.name.replace(/"/g, '&quot;')}">Delete entire recording</button>
         </div>
       </div>
-      <div class="lightbox-analysis">
-        <p class="recording-lightbox-note">
-          Frames are stored in <code>data/${file.path}/</code>. Use the controls to play the captured sequence back as a hyperlapse.
-        </p>
+      <div class="lightbox-analysis recording-current-analysis">
+        <h4 class="lightbox-analysis-title">AI Analysis</h4>
+        <p class="recording-current-frame-name" id="recording-current-frame-name"></p>
+        <div class="lightbox-analysis-body recording-current-analysis-body"></div>
+      </div>
+      <div class="lightbox-analysis recording-frames-analysis">
+        <h4 class="lightbox-analysis-title">All frames</h4>
+        ${renderRecordingFrameList(frames, 0)}
       </div>
     </aside>`;
 
@@ -626,6 +755,19 @@ function openRecordingLightbox(index) {
     counter.textContent = `${frameIndex + 1} / ${frames.length}`;
     scrubber.value = String(frameIndex);
     playPause.textContent = playing ? 'Pause' : 'Play';
+    syncRecordingFrameListActive(lb, frameIndex);
+    updateRecordingFrameAnalysis(lb, frames[frameIndex]);
+  }
+
+  function refreshFrameList() {
+    const list = lb.querySelector('#recording-frame-list');
+    if (!list) return;
+    list.outerHTML = renderRecordingFrameList(frames, frameIndex);
+    bindRecordingFrameList(lb, frames, (index) => {
+      stop();
+      frameIndex = index;
+      showFrame();
+    });
   }
 
   function stop() {
@@ -684,6 +826,14 @@ function openRecordingLightbox(index) {
 
   showFrame();
 
+  bindRecordingFrameList(lb, frames, (index) => {
+    stop();
+    frameIndex = index;
+    showFrame();
+  });
+
+  bindLightboxInteractions(lb, frames[0]);
+
   bindLightboxRotateButtons(lb, null, () => frames[frameIndex]);
 
   lb.querySelector('.lightbox-trash-frame-btn')?.addEventListener('click', async () => {
@@ -711,6 +861,7 @@ function openRecordingLightbox(index) {
     counter.textContent = `${frameIndex + 1} / ${frames.length}`;
     lb.querySelector('.lightbox-file-meta').textContent =
       `${file.frameCount} frames · ${formatBytes(file.size)} · ${formatDate(file.modified)}`;
+    refreshFrameList();
     showFrame();
   });
 

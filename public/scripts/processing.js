@@ -2,6 +2,8 @@ import { apiFetch, formatBytes, formatDate, showToast } from './utils.js';
 import { renderMealSummary, PROCESSING_ERROR_MSG } from './mealResults.js';
 import { confirmZoneProcessing } from './zonePreviewModal.js';
 
+const PROCESSING_FOCUS_KEY = 'processingFocus';
+
 let files = [];
 let results = {};
 let appSettings = { zones: [] };
@@ -9,13 +11,30 @@ let processing = new Set();
 
 const container = () => document.getElementById('processing-content');
 
+function getFileKey(file) {
+  if (!file) return '';
+  if (typeof file === 'string') return file;
+  return file.path || file.name || '';
+}
+
+function findFileRecord(fileKey) {
+  return files.find((file) => getFileKey(file) === fileKey)
+    || files.find((file) => file.name === fileKey);
+}
+
+function getResultForFileKey(fileKey) {
+  const file = findFileRecord(fileKey);
+  const path = file ? getFileKey(file) : fileKey;
+  return results[path] || results[path.split('/').pop()] || null;
+}
+
 function getUserContext() {
   return document.getElementById('meal-context')?.value.trim() || '';
 }
 
-function getStatus(filename) {
-  if (processing.has(filename)) return 'processing';
-  if (results[filename]) return 'done';
+function getStatus(fileKey) {
+  if (processing.has(fileKey)) return 'processing';
+  if (getResultForFileKey(fileKey)) return 'done';
   return 'unprocessed';
 }
 
@@ -42,7 +61,7 @@ function render() {
     return;
   }
 
-  const doneCount = imageFiles.filter((f) => results[f.name]).length;
+  const doneCount = imageFiles.filter((f) => getResultForFileKey(getFileKey(f))).length;
   const zoneCount = appSettings.zones?.length || 0;
 
   container().innerHTML = `
@@ -79,24 +98,28 @@ function render() {
     </div>
     <div class="processing-list" id="processing-list">
       ${imageFiles.map((file) => {
-        const status = getStatus(file.name);
+        const fileKey = getFileKey(file);
+        const status = getStatus(fileKey);
+        const displayName = file.path?.includes('/') ? file.path : file.name;
         return `
-          <div class="card processing-row" data-file="${file.name}">
+          <div class="card processing-row" data-file="${fileKey.replace(/"/g, '&quot;')}">
             <div class="processing-row-info">
-              <div class="processing-row-name">${file.name}</div>
+              <div class="processing-row-name">${displayName}</div>
               <div class="processing-row-meta">${formatBytes(file.size)} · ${formatDate(file.modified)}</div>
             </div>
             <span class="status-badge">${statusBadge(status)}</span>
-            <button class="btn btn-primary btn-sm process-btn" data-file="${file.name}" ${status === 'processing' ? 'disabled' : ''}>
+            <button class="btn btn-primary btn-sm process-btn" data-file="${fileKey.replace(/"/g, '&quot;')}" ${status === 'processing' ? 'disabled' : ''}>
               ${status === 'done' ? 'Re-process' : 'Process'}
             </button>
-            ${status === 'done' ? `<button class="btn btn-danger btn-sm clear-btn" data-file="${file.name}">Clear</button>` : ''}
+            ${status === 'done' ? `<button class="btn btn-ghost btn-sm view-results-btn" data-file="${fileKey.replace(/"/g, '&quot;')}">Results</button>` : ''}
+            ${status === 'done' ? `<button class="btn btn-danger btn-sm clear-btn" data-file="${fileKey.replace(/"/g, '&quot;')}">Clear</button>` : ''}
           </div>`;
       }).join('')}
     </div>
     <div id="processing-summary"></div>`;
 
   bindEvents();
+  consumeNavigationFocus();
 }
 
 function bindEvents() {
@@ -106,13 +129,17 @@ function bindEvents() {
     btn.addEventListener('click', () => processFile(btn.dataset.file));
   });
 
+  document.querySelectorAll('.view-results-btn').forEach((btn) => {
+    btn.addEventListener('click', () => focusFile(btn.dataset.file, { scroll: true, showResult: true }));
+  });
+
   document.querySelectorAll('.clear-btn').forEach((btn) => {
     btn.addEventListener('click', () => clearCache(btn.dataset.file));
   });
 }
 
-function updateRowStatus(filename, status) {
-  const row = document.querySelector(`.processing-row[data-file="${CSS.escape(filename)}"]`);
+function updateRowStatus(fileKey, status) {
+  const row = document.querySelector(`.processing-row[data-file="${CSS.escape(fileKey)}"]`);
   if (!row) return;
   row.querySelector('.status-badge').innerHTML = statusBadge(status);
   const btn = row.querySelector('.process-btn');
@@ -122,28 +149,61 @@ function updateRowStatus(filename, status) {
   }
 }
 
-function getFileRecord(filename) {
-  return files.find((file) => file.name === filename);
+function focusFile(fileKey, { scroll = true, showResult = true } = {}) {
+  const row = document.querySelector(`.processing-row[data-file="${CSS.escape(fileKey)}"]`);
+  if (!row) return false;
+
+  if (scroll) {
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.add('processing-row-highlight');
+    setTimeout(() => row.classList.remove('processing-row-highlight'), 2200);
+  }
+
+  if (showResult) {
+    const result = getResultForFileKey(fileKey);
+    if (result) showSummary(result);
+  }
+
+  return true;
 }
 
-async function processFile(filename) {
-  if (processing.has(filename)) return;
+function consumeNavigationFocus() {
+  try {
+    const raw = sessionStorage.getItem(PROCESSING_FOCUS_KEY);
+    if (!raw) return;
 
-  const file = getFileRecord(filename);
+    sessionStorage.removeItem(PROCESSING_FOCUS_KEY);
+    const payload = JSON.parse(raw);
+    const fileKey = payload.path || payload.name;
+    if (!fileKey) return;
+
+    if (!focusFile(fileKey, { scroll: true, showResult: true })) {
+      showToast('Could not find that frame in the processing list', 'info');
+    }
+  } catch {
+    sessionStorage.removeItem(PROCESSING_FOCUS_KEY);
+  }
+}
+
+async function processFile(fileKey) {
+  if (processing.has(fileKey)) return;
+
+  const file = findFileRecord(fileKey);
+  const filename = getFileKey(file) || fileKey;
   const confirmed = await confirmZoneProcessing({
-    filename,
-    filePath: file?.path || filename,
+    filename: file?.name || filename.split('/').pop(),
+    filePath: filename,
     zones: appSettings.zones,
     orientationDeg: appSettings.referenceOrientation,
   });
   if (!confirmed) return;
 
-  if (results[filename]) {
-    await clearCache(filename, false);
+  if (getResultForFileKey(fileKey)) {
+    await clearCache(fileKey, false);
   }
 
-  processing.add(filename);
-  updateRowStatus(filename, 'processing');
+  processing.add(fileKey);
+  updateRowStatus(fileKey, 'processing');
 
   const userContext = getUserContext();
 
@@ -153,25 +213,29 @@ async function processFile(filename) {
       body: JSON.stringify({ filename, userContext: userContext || undefined }),
     });
     results[filename] = data.result;
-    showToast(`${filename} processed successfully`, 'success');
+    showToast(`${file?.name || filename} processed successfully`, 'success');
     showSummary(data.result);
   } catch (err) {
-    updateRowStatus(filename, 'error');
+    updateRowStatus(fileKey, 'error');
     showToast(PROCESSING_ERROR_MSG, 'error');
   } finally {
-    processing.delete(filename);
-    updateRowStatus(filename, getStatus(filename));
+    processing.delete(fileKey);
+    updateRowStatus(fileKey, getStatus(fileKey));
     render();
     const ctx = document.getElementById('meal-context');
     if (ctx && userContext) ctx.value = userContext;
   }
 }
 
-async function clearCache(filename, reRender = true) {
+async function clearCache(fileKey, reRender = true) {
+  const file = findFileRecord(fileKey);
+  const filename = getFileKey(file) || fileKey;
+
   try {
     await apiFetch(`/api/process/${encodeURIComponent(filename)}`, { method: 'DELETE' });
     delete results[filename];
-    showToast(`Cache cleared for ${filename}`, 'info');
+    delete results[filename.split('/').pop()];
+    showToast(`Cache cleared for ${file?.name || filename}`, 'info');
     if (reRender) render();
   } catch (err) {
     showToast(err.message, 'error');
@@ -179,7 +243,7 @@ async function clearCache(filename, reRender = true) {
 }
 
 async function processAll() {
-  const imageFiles = files.filter((f) => f.type === 'image' && !results[f.name]);
+  const imageFiles = files.filter((f) => f.type === 'image' && !getResultForFileKey(getFileKey(f)));
   if (imageFiles.length === 0) {
     showToast('All images already processed', 'info');
     return;
@@ -197,9 +261,10 @@ async function processAll() {
   let lastResult = null;
 
   for (const file of imageFiles) {
+    const fileKey = getFileKey(file);
     const confirmed = await confirmZoneProcessing({
       filename: file.name,
-      filePath: file.path || file.name,
+      filePath: fileKey,
       zones: appSettings.zones,
       orientationDeg: appSettings.referenceOrientation,
     });
@@ -208,21 +273,21 @@ async function processAll() {
       break;
     }
 
-    processing.add(file.name);
-    updateRowStatus(file.name, 'processing');
+    processing.add(fileKey);
+    updateRowStatus(fileKey, 'processing');
 
     try {
       const data = await apiFetch('/api/process', {
         method: 'POST',
-        body: JSON.stringify({ filename: file.name, userContext: userContext || undefined }),
+        body: JSON.stringify({ filename: fileKey, userContext: userContext || undefined }),
       });
-      results[file.name] = data.result;
+      results[fileKey] = data.result;
       lastResult = data.result;
     } catch (err) {
-      updateRowStatus(file.name, 'error');
+      updateRowStatus(fileKey, 'error');
       showToast(PROCESSING_ERROR_MSG, 'error');
     } finally {
-      processing.delete(file.name);
+      processing.delete(fileKey);
       completed++;
       progressFill.style.width = `${(completed / total) * 100}%`;
       progressText.textContent = `${completed} / ${total}`;
@@ -249,6 +314,8 @@ function showSummary(result) {
       </p>
       ${renderMealSummary(result)}
     </div>`;
+
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 export async function init() {
