@@ -1,0 +1,1371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmartDining — NYU Langone Precision Medicine</title>
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --slide-w: 1920;
+      --slide-h: 1080;
+      --color-bg: #eef1f8;
+      --color-surface: rgba(255, 255, 255, 0.72);
+      --color-surface-strong: rgba(255, 255, 255, 0.88);
+      --color-accent: #6b5ce7;
+      --color-accent-2: #e85d8a;
+      --color-accent-3: #0d9488;
+      --color-text: #1e293b;
+      --color-text-muted: #64748b;
+      --color-border: rgba(255, 255, 255, 0.65);
+      --shadow-glass: 0 8px 32px rgba(31, 38, 135, 0.12);
+      --shadow-glass-lg: 0 16px 48px rgba(31, 38, 135, 0.18);
+      --blur: blur(20px);
+      --radius: 20px;
+      --radius-sm: 12px;
+      --font: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: var(--font);
+      background: #0f172a;
+      color: var(--color-text);
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Ambient background behind scaled deck */
+    .deck-backdrop {
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at 15% 20%, rgba(107, 92, 231, 0.35) 0%, transparent 45%),
+        radial-gradient(ellipse at 85% 75%, rgba(232, 93, 138, 0.28) 0%, transparent 45%),
+        radial-gradient(ellipse at 50% 50%, rgba(13, 148, 136, 0.12) 0%, transparent 60%),
+        linear-gradient(145deg, #1e1b4b 0%, #0f172a 50%, #134e4a 100%);
+      z-index: 0;
+    }
+
+    .deck-wrapper {
+      position: relative;
+      z-index: 1;
+      width: min(100vw, calc(100vh * 16 / 9));
+      height: min(100vh, calc(100vw * 9 / 16));
+      aspect-ratio: 16 / 9;
+    }
+
+    .deck {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      transform-origin: top left;
+      overflow: hidden;
+      border-radius: 8px;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      padding: 72px 88px 64px;
+      display: none;
+      flex-direction: column;
+      background: var(--color-bg);
+      background-image:
+        radial-gradient(ellipse at 10% 15%, rgba(107, 92, 231, 0.14) 0%, transparent 50%),
+        radial-gradient(ellipse at 90% 85%, rgba(232, 93, 138, 0.1) 0%, transparent 50%);
+      opacity: 0;
+      transition: opacity 0.45s ease;
+    }
+
+    .slide.active {
+      display: flex;
+      opacity: 1;
+    }
+
+    .glass {
+      background: var(--color-surface);
+      backdrop-filter: var(--blur);
+      -webkit-backdrop-filter: var(--blur);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-glass);
+    }
+
+    .glass-strong {
+      background: var(--color-surface-strong);
+      backdrop-filter: var(--blur);
+      -webkit-backdrop-filter: var(--blur);
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-glass-lg);
+    }
+
+    /* Typography */
+    .slide-label {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--color-accent);
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      font-size: 64px;
+      font-weight: 700;
+      line-height: 1.08;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    h2 {
+      font-size: 44px;
+      font-weight: 700;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      color: var(--color-text);
+      margin-bottom: 28px;
+    }
+
+    h3 {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--color-text);
+      margin-bottom: 8px;
+    }
+
+    p, li {
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--color-text-muted);
+    }
+
+    ul {
+      list-style: none;
+      padding: 0;
+    }
+
+    ul li {
+      position: relative;
+      padding-left: 28px;
+      margin-bottom: 14px;
+    }
+
+    ul li::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 12px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));
+    }
+
+    .subtitle {
+      font-size: 28px;
+      color: var(--color-text-muted);
+      margin-top: 16px;
+      font-weight: 400;
+    }
+
+    .tagline {
+      font-size: 20px;
+      color: var(--color-accent-3);
+      font-weight: 600;
+      margin-top: 8px;
+    }
+
+    /* Layout helpers */
+    .slide-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 0;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      flex: 1;
+      align-items: stretch;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      flex: 1;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+    }
+
+    .card {
+      padding: 28px;
+      height: 100%;
+    }
+
+    .card-icon {
+      font-size: 36px;
+      margin-bottom: 14px;
+    }
+
+    .card p {
+      font-size: 17px;
+      line-height: 1.5;
+    }
+
+    .stat-row {
+      display: flex;
+      gap: 24px;
+      margin-top: 32px;
+    }
+
+    .stat {
+      flex: 1;
+      padding: 24px 28px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 42px;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--color-accent), var(--color-accent-3));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .stat-label {
+      font-size: 15px;
+      color: var(--color-text-muted);
+      margin-top: 6px;
+      font-weight: 500;
+    }
+
+    /* Title slide */
+    .title-slide {
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+    }
+
+    .title-slide .glass-strong {
+      padding: 64px 80px;
+      max-width: 1200px;
+    }
+
+    .title-slide h1 {
+      font-size: 80px;
+    }
+
+    .venue-badge {
+      display: inline-block;
+      margin-top: 36px;
+      padding: 12px 28px;
+      border-radius: 999px;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--color-text);
+      background: rgba(107, 92, 231, 0.12);
+      border: 1px solid rgba(107, 92, 231, 0.25);
+    }
+
+    .presenter {
+      margin-top: 28px;
+      font-size: 18px;
+      color: var(--color-text-muted);
+    }
+
+    /* Architecture diagram */
+    .arch-flow {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      flex: 1;
+      justify-content: center;
+    }
+
+    .arch-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .arch-box {
+      padding: 18px 24px;
+      text-align: center;
+      min-width: 160px;
+    }
+
+    .arch-box .label {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--color-accent);
+      margin-bottom: 4px;
+    }
+
+    .arch-box .name {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--color-text);
+    }
+
+    .arch-arrow {
+      font-size: 24px;
+      color: var(--color-accent);
+      opacity: 0.7;
+    }
+
+    .arch-arrow-down {
+      text-align: center;
+      font-size: 28px;
+      color: var(--color-accent);
+      opacity: 0.6;
+    }
+
+    /* Feature pills */
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+
+    .feature-pill {
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .feature-pill span:first-child {
+      font-size: 24px;
+    }
+
+    .feature-pill span:last-child {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--color-text);
+    }
+
+    /* Code block */
+    .code-block {
+      padding: 24px 28px;
+      font-family: 'Cascadia Code', 'Consolas', monospace;
+      font-size: 15px;
+      line-height: 1.6;
+      color: #334155;
+      overflow: auto;
+      max-height: 320px;
+    }
+
+    .code-block .key { color: var(--color-accent); }
+    .code-block .str { color: var(--color-accent-3); }
+    .code-block .num { color: var(--color-accent-2); }
+
+    /* Workflow steps */
+    .workflow {
+      display: flex;
+      gap: 12px;
+      align-items: stretch;
+      flex: 1;
+    }
+
+    .workflow-step {
+      flex: 1;
+      padding: 24px 20px;
+      text-align: center;
+      position: relative;
+    }
+
+    .workflow-step .step-num {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));
+      color: white;
+      font-weight: 700;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 14px;
+    }
+
+    .workflow-step h3 {
+      font-size: 17px;
+      margin-bottom: 8px;
+    }
+
+    .workflow-step p {
+      font-size: 14px;
+    }
+
+    .workflow-arrow {
+      display: flex;
+      align-items: center;
+      font-size: 28px;
+      color: var(--color-accent);
+      opacity: 0.5;
+      padding-top: 40px;
+    }
+
+    /* Two-column with accent bar */
+    .accent-list li::before {
+      border-radius: 2px;
+      width: 4px;
+      height: 100%;
+      top: 0;
+      background: linear-gradient(180deg, var(--color-accent), var(--color-accent-2));
+    }
+
+    .highlight-box {
+      padding: 24px 28px;
+      border-left: 4px solid var(--color-accent-3);
+      margin-top: 20px;
+    }
+
+    .highlight-box p {
+      font-size: 18px;
+      color: var(--color-text);
+    }
+
+    /* Roadmap timeline */
+    .timeline {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      flex: 1;
+      justify-content: center;
+    }
+
+    .timeline-item {
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+      padding: 20px 24px;
+    }
+
+    .timeline-badge {
+      flex-shrink: 0;
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .badge-now { background: rgba(5, 150, 105, 0.15); color: #059669; }
+    .badge-next { background: rgba(107, 92, 231, 0.15); color: var(--color-accent); }
+    .badge-future { background: rgba(217, 119, 6, 0.15); color: #d97706; }
+
+    .timeline-item h3 { font-size: 19px; margin-bottom: 4px; }
+    .timeline-item p { font-size: 16px; }
+
+    /* Closing slide */
+    .closing-slide {
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+    }
+
+    .closing-slide h2 {
+      font-size: 56px;
+      background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .contact-row {
+      display: flex;
+      gap: 24px;
+      justify-content: center;
+      margin-top: 40px;
+    }
+
+    .contact-chip {
+      padding: 16px 32px;
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--color-text);
+    }
+
+    /* Controls */
+    .controls {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 10px 20px;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(12px);
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .controls button {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: white;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 18px;
+      transition: background 0.2s;
+    }
+
+    .controls button:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .slide-counter {
+      color: rgba(255, 255, 255, 0.85);
+      font-size: 14px;
+      font-weight: 500;
+      min-width: 64px;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .progress-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--color-accent), var(--color-accent-2));
+      z-index: 100;
+      transition: width 0.35s ease;
+    }
+
+    .help-hint {
+      position: fixed;
+      top: 16px;
+      right: 20px;
+      z-index: 100;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.45);
+    }
+
+    /* Hardware setup schematic */
+    .setup-slide-body {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 28px;
+      align-items: stretch;
+      min-height: 0;
+    }
+
+    .schematic-wrap {
+      padding: 20px 24px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .schematic-wrap svg {
+      width: 100%;
+      height: auto;
+      max-height: 620px;
+    }
+
+    .setup-legend {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      justify-content: center;
+    }
+
+    .setup-legend .glass {
+      padding: 18px 22px;
+    }
+
+    .setup-legend h3 {
+      font-size: 17px;
+      margin-bottom: 6px;
+    }
+
+    .setup-legend p {
+      font-size: 15px;
+      line-height: 1.45;
+    }
+
+    .legend-dots {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 18px;
+      margin-top: 12px;
+    }
+
+    .legend-dot {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--color-text);
+    }
+
+    .legend-dot i {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    @media print {
+      .controls, .progress-bar, .help-hint, .deck-backdrop { display: none; }
+      body { overflow: visible; background: white; }
+      .deck-wrapper { width: 100%; height: auto; }
+      .deck { transform: none !important; position: static; width: 100%; height: auto; box-shadow: none; }
+      .slide { display: flex !important; opacity: 1 !important; page-break-after: always; height: 100vh; position: relative; }
+    }
+  </style>
+</head>
+<body>
+  <div class="deck-backdrop"></div>
+  <div class="progress-bar" id="progress"></div>
+  <div class="help-hint">← → Space · F fullscreen</div>
+
+  <div class="deck-wrapper">
+    <div class="deck" id="deck">
+
+      <!-- Slide 1: Title -->
+      <section class="slide title-slide active" data-slide="1">
+        <div class="glass-strong">
+          <p class="slide-label">Precision Medicine · Dietary Phenotyping</p>
+          <h1>SmartDining</h1>
+          <p class="subtitle">AI-Powered Local Meal Analytics</p>
+          <p class="tagline">Privacy-first dietary data capture for research &amp; clinical innovation</p>
+          <div class="venue-badge">NYU Langone Health · Precision Medicine</div>
+          <p class="presenter">July 2026</p>
+        </div>
+      </section>
+
+      <!-- Slide 2: The Challenge -->
+      <section class="slide" data-slide="2">
+        <p class="slide-label">The Problem</p>
+        <h2>Dietary Assessment Is a Bottleneck in Precision Medicine</h2>
+        <div class="slide-body">
+          <div class="grid-2">
+            <div>
+              <ul class="accent-list">
+                <li>Manual food logging is <strong style="color: var(--color-text)">burdensome</strong> and poorly sustained in long studies</li>
+                <li>Self-reported intake often <strong style="color: var(--color-text)">underestimates</strong> calories and misclassifies foods</li>
+                <li>Multi-subject dining settings need <strong style="color: var(--color-text)">per-participant</strong> tracking from a single camera</li>
+                <li>Health research demands <strong style="color: var(--color-text)">data sovereignty</strong> — photos and intake data cannot leave the institution lightly</li>
+              </ul>
+            </div>
+            <div class="glass card">
+              <h3>What researchers need</h3>
+              <ul style="margin-top: 16px;">
+                <li>Passive, objective meal documentation</li>
+                <li>Structured, exportable dietary phenotypes</li>
+                <li>Local processing with optional cloud AI</li>
+                <li>Repeatable fixed-camera lab deployments</li>
+              </ul>
+              <div class="highlight-box glass">
+                <p>SmartDining addresses the <em>data collection layer</em> — turning meal photos into structured intake signals for downstream precision-medicine pipelines.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 3: What is SmartDining -->
+      <section class="slide" data-slide="3">
+        <p class="slide-label">Overview</p>
+        <h2>What Is SmartDining?</h2>
+        <div class="slide-body">
+          <div class="grid-2">
+            <div>
+              <p style="font-size: 24px; color: var(--color-text); margin-bottom: 24px;">
+                A <strong>local-only web application</strong> that captures meal photos, runs vision AI to identify foods and estimate visible portions, and visualizes dietary patterns over time.
+              </p>
+              <div class="stat-row">
+                <div class="glass stat">
+                  <div class="stat-value">100%</div>
+                  <div class="stat-label">Local data storage</div>
+                </div>
+                <div class="glass stat">
+                  <div class="stat-value">9</div>
+                  <div class="stat-label">Integrated modules</div>
+                </div>
+                <div class="glass stat">
+                  <div class="stat-value">2</div>
+                  <div class="stat-label">AI providers</div>
+                </div>
+              </div>
+            </div>
+            <div class="glass-strong card">
+              <h3>Target users</h3>
+              <ul style="margin-top: 16px;">
+                <li><strong style="color: var(--color-text)">Nutrition &amp; clinical researchers</strong> — structured intake from fixed-camera setups</li>
+                <li><strong style="color: var(--color-text)">Precision medicine labs</strong> — privacy-preserving dietary phenotyping</li>
+                <li><strong style="color: var(--color-text)">Home &amp; kiosk operators</strong> — Android phone as Wi‑Fi/USB camera</li>
+              </ul>
+              <p style="margin-top: 20px; font-size: 17px;">
+                Tagline: <em style="color: var(--color-accent-3)">"Local Meal Analytics"</em>
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 4: Privacy Architecture -->
+      <section class="slide" data-slide="4">
+        <p class="slide-label">Architecture</p>
+        <h2>Privacy-First, Local-First Design</h2>
+        <div class="slide-body">
+          <div class="grid-3">
+            <div class="glass card">
+              <div class="card-icon">🔒</div>
+              <h3>Data stays local</h3>
+              <p>Meal photos, analysis results, settings, and device telemetry are stored on your machine — SQLite database and JSON cache files. No cloud photo uploads.</p>
+            </div>
+            <div class="glass card">
+              <div class="card-icon">🔑</div>
+              <h3>User-controlled AI</h3>
+              <p>Vision analysis calls Google Gemini or Anthropic Claude using <em>your</em> API keys. Only image data sent to AI providers — never to a SmartDining cloud.</p>
+            </div>
+            <div class="glass card">
+              <div class="card-icon">📤</div>
+              <h3>Research-ready export</h3>
+              <p>Structured JSON export of all analysis results for downstream pipelines — EHR integration, cohort analytics, or nutrition validation studies.</p>
+            </div>
+          </div>
+          <div class="highlight-box glass" style="margin-top: 24px;">
+            <p><strong>Research fit:</strong> Ideal for IRB-constrained environments where meal imagery must remain on-premises while still leveraging state-of-the-art vision AI.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 5: Tech Stack -->
+      <section class="slide" data-slide="5">
+        <p class="slide-label">How It Was Built</p>
+        <h2>Technology Stack</h2>
+        <div class="slide-body">
+          <div class="grid-2">
+            <div class="glass card">
+              <h3>Backend &amp; Infrastructure</h3>
+              <ul style="margin-top: 16px;">
+                <li><strong style="color: var(--color-text)">Node.js 18+</strong> with Express 5 REST API</li>
+                <li><strong style="color: var(--color-text)">SQLite</strong> (<code>better-sqlite3</code>) — settings, API usage, phone health</li>
+                <li><strong style="color: var(--color-text)">Sharp</strong> — image rotation &amp; zone cropping</li>
+                <li><strong style="color: var(--color-text)">ADB</strong> — Android Debug Bridge for remote camera control</li>
+              </ul>
+            </div>
+            <div class="glass card">
+              <h3>Frontend &amp; AI</h3>
+              <ul style="margin-top: 16px;">
+                <li><strong style="color: var(--color-text)">Vanilla JS SPA</strong> — no framework lock-in, glassmorphism UI</li>
+                <li><strong style="color: var(--color-text)">Chart.js</strong> — analytics visualizations</li>
+                <li><strong style="color: var(--color-text)">Google Gemini</strong> — 2.0 Flash, 2.5 Flash/Pro, 3.0 Flash</li>
+                <li><strong style="color: var(--color-text)">Anthropic Claude</strong> — Haiku 4.5, Sonnet 4.6</li>
+              </ul>
+            </div>
+          </div>
+          <div class="grid-4" style="margin-top: 24px;">
+            <div class="glass feature-pill"><span>⚡</span><span>Express 5</span></div>
+            <div class="glass feature-pill"><span>🗄️</span><span>SQLite</span></div>
+            <div class="glass feature-pill"><span>🤖</span><span>Vision AI</span></div>
+            <div class="glass feature-pill"><span>📱</span><span>Android ADB</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 6: System Architecture -->
+      <section class="slide" data-slide="6">
+        <p class="slide-label">Architecture</p>
+        <h2>System Architecture</h2>
+        <div class="slide-body arch-flow">
+          <div class="arch-row">
+            <div class="glass arch-box">
+              <div class="label">Client</div>
+              <div class="name">Browser SPA</div>
+            </div>
+            <div class="arch-arrow">→</div>
+            <div class="glass arch-box">
+              <div class="label">Server</div>
+              <div class="name">Express API</div>
+            </div>
+            <div class="arch-arrow">→</div>
+            <div class="glass arch-box">
+              <div class="label">Storage</div>
+              <div class="name">data/ · SQLite · JSON</div>
+            </div>
+          </div>
+          <div class="arch-arrow-down">↓</div>
+          <div class="arch-row">
+            <div class="glass arch-box">
+              <div class="label">Capture</div>
+              <div class="name">Android Phone (ADB)</div>
+            </div>
+            <div class="arch-arrow">→</div>
+            <div class="glass arch-box">
+              <div class="label">Processing</div>
+              <div class="name">Zone Crop + AI</div>
+            </div>
+            <div class="arch-arrow">→</div>
+            <div class="glass arch-box">
+              <div class="label">External</div>
+              <div class="name">Gemini / Claude API</div>
+            </div>
+          </div>
+          <div class="arch-arrow-down">↓</div>
+          <div class="arch-row">
+            <div class="glass arch-box" style="min-width: 280px;">
+              <div class="label">Output</div>
+              <div class="name">Analytics · Charts · JSON Export</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 7: Core Features -->
+      <section class="slide" data-slide="7">
+        <p class="slide-label">Features</p>
+        <h2>Nine Integrated Modules</h2>
+        <div class="slide-body">
+          <div class="feature-grid">
+            <div class="glass feature-pill"><span>⚙️</span><span>Settings — AI provider &amp; cost tracking</span></div>
+            <div class="glass feature-pill"><span>📱</span><span>Phone Config — ADB device registration</span></div>
+            <div class="glass feature-pill"><span>🔋</span><span>Phone Status — battery, temp, GPS</span></div>
+            <div class="glass feature-pill"><span>🔴</span><span>Recording — scheduled meal capture</span></div>
+            <div class="glass feature-pill"><span>📐</span><span>Zones — multi-region analysis</span></div>
+            <div class="glass feature-pill"><span>🖼️</span><span>Gallery — browse &amp; lightbox</span></div>
+            <div class="glass feature-pill"><span>🗑️</span><span>Trash — soft delete &amp; restore</span></div>
+            <div class="glass feature-pill"><span>⚡</span><span>Processing — single &amp; batch AI</span></div>
+            <div class="glass feature-pill"><span>📊</span><span>Analytics — charts &amp; export</span></div>
+          </div>
+          <div class="grid-2" style="margin-top: 28px;">
+            <div class="glass card">
+              <h3>Operational tooling</h3>
+              <p>Battery charge control (80%/20% thresholds), diagnostic CLI, API cost logging per call, and recording session playback.</p>
+            </div>
+            <div class="glass card">
+              <h3>Flexible capture</h3>
+              <p>Manual file drop, one-shot phone snap, or automated time-lapse recording — all paths feed the same analysis pipeline.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 8: Phone Setup Schematic -->
+      <section class="slide" data-slide="8">
+        <p class="slide-label">Hardware Setup</p>
+        <h2>Overhead Phone Camera — Fixed Dining Rig</h2>
+        <div class="slide-body setup-slide-body">
+          <div class="glass-strong schematic-wrap">
+            <svg viewBox="0 0 900 560" xmlns="http://www.w3.org/2000/svg" aria-label="Schematic of Android phone mounted above a dining table">
+              <defs>
+                <linearGradient id="phoneGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#6b5ce7"/>
+                  <stop offset="100%" stop-color="#e85d8a"/>
+                </linearGradient>
+                <linearGradient id="fovGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stop-color="rgba(107,92,231,0.22)"/>
+                  <stop offset="100%" stop-color="rgba(107,92,231,0.04)"/>
+                </linearGradient>
+                <filter id="softShadow" x="-10%" y="-10%" width="120%" height="120%">
+                  <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="rgba(30,41,59,0.12)"/>
+                </filter>
+                <marker id="arrowAccent" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                  <path d="M0,0 L8,4 L0,8 Z" fill="#6b5ce7"/>
+                </marker>
+                <marker id="arrowTeal" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                  <path d="M0,0 L8,4 L0,8 Z" fill="#0d9488"/>
+                </marker>
+              </defs>
+
+              <!-- Ceiling -->
+              <rect x="0" y="0" width="900" height="28" fill="rgba(30,41,59,0.08)" rx="2"/>
+              <text x="450" y="19" text-anchor="middle" font-size="11" fill="#64748b" font-family="system-ui,sans-serif" font-weight="600">CEILING / OVERHEAD MOUNT POINT</text>
+
+              <!-- Mount pole -->
+              <rect x="438" y="28" width="24" height="72" fill="rgba(100,116,139,0.35)" rx="4"/>
+              <rect x="430" y="96" width="40" height="10" fill="rgba(100,116,139,0.45)" rx="3"/>
+
+              <!-- Phone body -->
+              <g filter="url(#softShadow)">
+                <rect x="404" y="108" width="92" height="148" rx="14" fill="url(#phoneGrad)" stroke="rgba(255,255,255,0.6)" stroke-width="2"/>
+                <rect x="418" y="122" width="64" height="108" rx="6" fill="rgba(255,255,255,0.15)"/>
+                <circle cx="450" cy="244" r="6" fill="rgba(255,255,255,0.35)"/>
+                <!-- Camera lens (bottom of phone, facing down) -->
+                <circle cx="450" cy="252" r="9" fill="#1e293b" stroke="rgba(255,255,255,0.5)" stroke-width="2"/>
+                <circle cx="450" cy="252" r="4" fill="#0d9488"/>
+              </g>
+              <text x="450" y="278" text-anchor="middle" font-size="13" fill="#6b5ce7" font-family="system-ui,sans-serif" font-weight="700">Android Phone</text>
+              <text x="450" y="294" text-anchor="middle" font-size="11" fill="#64748b" font-family="system-ui,sans-serif">Camera facing down · ADB remote control</text>
+
+              <!-- Field of view cone -->
+              <path d="M450,262 L220,430 L680,430 Z" fill="url(#fovGrad)" stroke="rgba(107,92,231,0.35)" stroke-width="1.5" stroke-dasharray="6 4"/>
+              <text x="450" y="360" text-anchor="middle" font-size="11" fill="#6b5ce7" font-family="system-ui,sans-serif" font-weight="600" opacity="0.8">FIELD OF VIEW</text>
+
+              <!-- Distance indicator -->
+              <line x1="700" y1="262" x2="700" y2="430" stroke="#94a3b8" stroke-width="1.5"/>
+              <line x1="694" y1="262" x2="706" y2="262" stroke="#94a3b8" stroke-width="1.5"/>
+              <line x1="694" y1="430" x2="706" y2="430" stroke="#94a3b8" stroke-width="1.5"/>
+              <text x="718" y="352" font-size="12" fill="#64748b" font-family="system-ui,sans-serif" font-weight="500">~60–90 cm</text>
+              <text x="718" y="368" font-size="10" fill="#94a3b8" font-family="system-ui,sans-serif">mount height</text>
+
+              <!-- Dining table (top-down perspective) -->
+              <g filter="url(#softShadow)">
+                <ellipse cx="450" cy="448" rx="268" ry="38" fill="rgba(100,116,139,0.12)"/>
+                <rect x="182" y="400" width="536" height="56" rx="8" fill="#d4c4a8" stroke="rgba(120,100,70,0.35)" stroke-width="2"/>
+                <rect x="182" y="400" width="536" height="10" rx="8" fill="rgba(255,255,255,0.25)"/>
+              </g>
+              <text x="450" y="392" text-anchor="middle" font-size="12" fill="#64748b" font-family="system-ui,sans-serif" font-weight="600">DINING TABLE (top-down view)</text>
+
+              <!-- Zone overlays on table -->
+              <rect x="210" y="412" width="140" height="36" rx="6" fill="rgba(107,92,231,0.18)" stroke="#6b5ce7" stroke-width="2" stroke-dasharray="5 3"/>
+              <text x="280" y="434" text-anchor="middle" font-size="11" fill="#6b5ce7" font-family="system-ui,sans-serif" font-weight="700">Seat 1</text>
+
+              <rect x="380" y="412" width="140" height="36" rx="6" fill="rgba(232,93,138,0.16)" stroke="#e85d8a" stroke-width="2" stroke-dasharray="5 3"/>
+              <text x="450" y="434" text-anchor="middle" font-size="11" fill="#e85d8a" font-family="system-ui,sans-serif" font-weight="700">Seat 2</text>
+
+              <rect x="550" y="412" width="140" height="36" rx="6" fill="rgba(13,148,136,0.16)" stroke="#0d9488" stroke-width="2" stroke-dasharray="5 3"/>
+              <text x="620" y="434" text-anchor="middle" font-size="11" fill="#0d9488" font-family="system-ui,sans-serif" font-weight="700">Shared</text>
+
+              <!-- Plates -->
+              <ellipse cx="280" cy="430" rx="22" ry="10" fill="rgba(255,255,255,0.85)" stroke="#cbd5e1" stroke-width="1.5"/>
+              <ellipse cx="450" cy="430" rx="22" ry="10" fill="rgba(255,255,255,0.85)" stroke="#cbd5e1" stroke-width="1.5"/>
+              <ellipse cx="620" cy="430" rx="28" ry="12" fill="rgba(255,255,255,0.85)" stroke="#cbd5e1" stroke-width="1.5"/>
+
+              <!-- Chairs -->
+              <rect x="230" y="468" width="56" height="36" rx="10" fill="rgba(100,116,139,0.2)" stroke="rgba(100,116,139,0.35)" stroke-width="1.5"/>
+              <rect x="407" y="468" width="56" height="36" rx="10" fill="rgba(100,116,139,0.2)" stroke="rgba(100,116,139,0.35)" stroke-width="1.5"/>
+              <rect x="584" y="468" width="56" height="36" rx="10" fill="rgba(100,116,139,0.2)" stroke="rgba(100,116,139,0.35)" stroke-width="1.5"/>
+              <text x="450" y="528" text-anchor="middle" font-size="11" fill="#94a3b8" font-family="system-ui,sans-serif">Participants seated below fixed camera</text>
+
+              <!-- Lab computer -->
+              <g filter="url(#softShadow)">
+                <rect x="48" y="300" width="120" height="88" rx="10" fill="rgba(255,255,255,0.9)" stroke="rgba(107,92,231,0.25)" stroke-width="2"/>
+                <rect x="58" y="310" width="100" height="58" rx="4" fill="#1e293b"/>
+                <rect x="78" y="376" width="60" height="6" rx="2" fill="rgba(100,116,139,0.4)"/>
+                <text x="58" y="332" font-size="9" fill="#6b5ce7" font-family="monospace" font-weight="600">SmartDining</text>
+                <text x="58" y="346" font-size="8" fill="#94a3b8" font-family="monospace">localhost:3000</text>
+              </g>
+              <text x="108" y="408" text-anchor="middle" font-size="11" fill="#64748b" font-family="system-ui,sans-serif" font-weight="600">Lab PC</text>
+
+              <!-- Wi-Fi / ADB connection -->
+              <path d="M168,320 C260,280 340,250 404,200" fill="none" stroke="#6b5ce7" stroke-width="2" stroke-dasharray="8 5" marker-end="url(#arrowAccent)"/>
+              <text x="248" y="248" font-size="11" fill="#6b5ce7" font-family="system-ui,sans-serif" font-weight="600">Wi‑Fi / USB ADB</text>
+              <text x="248" y="262" font-size="10" fill="#94a3b8" font-family="system-ui,sans-serif">Remote shutter · photo pull</text>
+
+              <!-- Photo flow to data folder -->
+              <path d="M108,388 C108,470 160,500 210,500" fill="none" stroke="#0d9488" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowTeal)"/>
+              <rect x="168" y="488" width="110" height="34" rx="8" fill="rgba(13,148,136,0.12)" stroke="#0d9488" stroke-width="1.5"/>
+              <text x="223" y="509" text-anchor="middle" font-size="11" fill="#0d9488" font-family="system-ui,sans-serif" font-weight="600">data/ folder</text>
+
+              <!-- Scheduled capture indicator -->
+              <g>
+                <circle cx="780" cy="180" r="28" fill="rgba(232,93,138,0.12)" stroke="#e85d8a" stroke-width="2"/>
+                <text x="780" y="176" text-anchor="middle" font-size="18" fill="#e85d8a">🔴</text>
+                <text x="780" y="196" text-anchor="middle" font-size="9" fill="#e85d8a" font-family="system-ui,sans-serif" font-weight="700">RECORD</text>
+              </g>
+              <line x1="752" y1="200" x2="490" y2="170" stroke="#e85d8a" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.6"/>
+              <text x="790" y="230" font-size="10" fill="#64748b" font-family="system-ui,sans-serif">Interval capture</text>
+              <text x="790" y="244" font-size="10" fill="#64748b" font-family="system-ui,sans-serif">during meals</text>
+            </svg>
+          </div>
+
+          <div class="setup-legend">
+            <div class="glass">
+              <h3>Fixed overhead mount</h3>
+              <p>Android phone secured above the table with a consistent downward angle. Same viewpoint every meal enables zone mapping and repeatable analysis.</p>
+            </div>
+            <div class="glass">
+              <h3>Remote control</h3>
+              <p>SmartDining on a lab PC triggers the shutter via ADB over Wi‑Fi or USB. Photos are pulled locally — no cloud upload.</p>
+            </div>
+            <div class="glass">
+              <h3>Zone regions</h3>
+              <p>Dashed rectangles define per-seat and shared-dish areas on the table surface, applied automatically to every captured frame.</p>
+              <div class="legend-dots">
+                <span class="legend-dot"><i style="background:#6b5ce7"></i> Seat 1</span>
+                <span class="legend-dot"><i style="background:#e85d8a"></i> Seat 2</span>
+                <span class="legend-dot"><i style="background:#0d9488"></i> Shared dish</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 9: Zone-Based Analysis -->
+      <section class="slide" data-slide="9">
+        <p class="slide-label">Innovation</p>
+        <h2>Zone-Based Multi-Subject Analysis</h2>
+        <div class="slide-body">
+          <div class="grid-2">
+            <div>
+              <p style="font-size: 20px; margin-bottom: 20px;">
+                Draw named rectangular zones on a <strong style="color: var(--color-text)">reference photo</strong> — the same layout applies to every image from your fixed overhead camera.
+              </p>
+              <ul>
+                <li><strong style="color: var(--color-text)">Seat 1, Seat 2, Shared dish</strong> — per-participant intake from one frame</li>
+                <li>Each zone cropped server-side with Sharp → separate AI call → merged results</li>
+                <li>Gallery lightbox shows zone overlays and per-zone result tabs</li>
+                <li>Normalized coordinates — annotate once, analyze forever</li>
+              </ul>
+            </div>
+            <div class="glass-strong card">
+              <h3>Use case: family / cohort dining study</h3>
+              <p style="margin: 12px 0 20px;">A single overhead camera captures a shared table. Zones isolate each participant's plate area for independent dietary phenotyping without separate cameras per subject.</p>
+              <div class="code-block glass">
+<span class="key">"zone_results"</span>: [
+  { <span class="key">"zone"</span>: <span class="str">"Seat 1"</span>,
+    <span class="key">"items"</span>: [
+      { <span class="key">"name"</span>: <span class="str">"grilled chicken"</span>,
+        <span class="key">"estimated_weight_grams"</span>: <span class="num">120</span> },
+      { <span class="key">"name"</span>: <span class="str">"broccoli"</span>,
+        <span class="key">"estimated_weight_grams"</span>: <span class="num">85</span> }
+    ]},
+  { <span class="key">"zone"</span>: <span class="str">"Seat 2"</span>, <span class="key">"items"</span>: [...] }
+]
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 10: Automated Capture -->
+      <section class="slide" data-slide="10">
+        <p class="slide-label">Capture Pipeline</p>
+        <h2>Passive Meal Documentation</h2>
+        <div class="slide-body">
+          <div class="grid-3">
+            <div class="glass card">
+              <div class="card-icon">📁</div>
+              <h3>Manual drop</h3>
+              <p>Drop JPG, PNG, WebP, or MP4 files into the local <code>data/</code> folder. Ideal for existing study archives.</p>
+            </div>
+            <div class="glass card">
+              <div class="card-icon">📸</div>
+              <h3>One-shot snap</h3>
+              <p>Android phone connected via USB or Wi‑Fi ADB. Remote shutter fires from the web UI; photo pulled to local storage.</p>
+            </div>
+            <div class="glass card">
+              <div class="card-icon">🎬</div>
+              <h3>Scheduled recording</h3>
+              <p>Configure interval (5–600 s) and max duration (1–240 min). Frames saved to session folders with playback and automatic phone cleanup.</p>
+            </div>
+          </div>
+          <div class="highlight-box glass" style="margin-top: 28px;">
+            <p><strong>24/7 lab deployments:</strong> Charge control stops charging at 80% and resumes at 20%. Phone health monitoring tracks battery, temperature, storage, and GPS for long-running research rigs.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 11: AI Analysis -->
+      <section class="slide" data-slide="11">
+        <p class="slide-label">AI Pipeline</p>
+        <h2>Clinical Nutrition Assistant</h2>
+        <div class="slide-body">
+          <div class="grid-2">
+            <div>
+              <p style="font-size: 20px; margin-bottom: 20px;">
+                Vision AI is prompted as a <strong style="color: var(--color-text)">clinical nutrition assistant</strong> — identifying foods and estimating <em>actual visible portion weight in grams</em>, not standard serving sizes.
+              </p>
+              <ul>
+                <li>Splits compound items (e.g., rice and beans → separate line items)</li>
+                <li>Flags composite dishes (lasagna, burrito) vs. separable items</li>
+                <li>Optional meal context ("half portion eaten") improves accuracy</li>
+                <li>Batch processing for entire galleries</li>
+              </ul>
+              <div class="highlight-box glass" style="margin-top: 20px;">
+                <p><strong>Planned:</strong> USDA nutrient database lookup after AI identification — a more defensible two-stage pipeline for clinical research.</p>
+              </div>
+            </div>
+            <div class="glass-strong card">
+              <h3>Current output schema (v2)</h3>
+              <div class="code-block glass" style="margin-top: 12px;">
+{
+  <span class="key">"items"</span>: [
+    {
+      <span class="key">"name"</span>: <span class="str">"grilled chicken"</span>,
+      <span class="key">"estimated_weight_grams"</span>: <span class="num">120</span>,
+      <span class="key">"count"</span>: <span class="num">1</span>,
+      <span class="key">"is_composite"</span>: <span class="num">false</span>
+    },
+    {
+      <span class="key">"name"</span>: <span class="str">"steamed broccoli"</span>,
+      <span class="key">"estimated_weight_grams"</span>: <span class="num">85</span>,
+      <span class="key">"is_composite"</span>: <span class="num">false</span>
+    }
+  ],
+  <span class="key">"schema_version"</span>: <span class="num">2</span>
+}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 12: Analytics -->
+      <section class="slide" data-slide="12">
+        <p class="slide-label">Analytics</p>
+        <h2>From Photos to Dietary Phenotypes</h2>
+        <div class="slide-body">
+          <div class="grid-2">
+            <div class="glass card">
+              <h3>Visual analytics</h3>
+              <ul style="margin-top: 16px;">
+                <li><strong style="color: var(--color-text)">Food frequency</strong> — most commonly identified items across all sessions</li>
+                <li><strong style="color: var(--color-text)">Weight timeline</strong> — estimated grams over time from filename timestamps</li>
+                <li><strong style="color: var(--color-text)">Result format mix</strong> — tracks schema evolution across study phases</li>
+                <li><strong style="color: var(--color-text)">API cost tracking</strong> — token usage and estimated USD per call for study budgeting</li>
+              </ul>
+            </div>
+            <div class="glass card">
+              <h3>JSON export</h3>
+              <p style="margin-bottom: 16px;">One-click export of all cached analysis results — ready for:</p>
+              <ul>
+                <li>Cohort nutrition analytics pipelines</li>
+                <li>Integration with REDCap or custom study databases</li>
+                <li>Validation against gold-standard dietary assessment (FFQ, 24-hour recall)</li>
+                <li>Future EHR / FHIR nutrition modules</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 13: NYU Langone Applications -->
+      <section class="slide" data-slide="13">
+        <p class="slide-label">Applications</p>
+        <h2>Relevance to NYU Langone Precision Medicine</h2>
+        <div class="slide-body">
+          <div class="grid-2">
+            <div>
+              <h3 style="color: var(--color-accent-3); margin-bottom: 16px;">Research applications</h3>
+              <ul>
+                <li><strong style="color: var(--color-text)">Dietary phenotyping</strong> for genomics–nutrition interaction studies</li>
+                <li><strong style="color: var(--color-text)">Passive intake monitoring</strong> in metabolic &amp; obesity research</li>
+                <li><strong style="color: var(--color-text)">Multi-subject household studies</strong> with zone-based per-participant data</li>
+                <li><strong style="color: var(--color-text)">Pilot validation</strong> of AI portion estimation vs. weighed food records</li>
+              </ul>
+            </div>
+            <div>
+              <h3 style="color: var(--color-accent); margin-bottom: 16px;">Institutional fit</h3>
+              <ul>
+                <li>On-premises deployment — aligns with data governance requirements</li>
+                <li>Structured JSON output for downstream precision-medicine pipelines</li>
+                <li>Configurable AI providers for institutional API agreements</li>
+                <li>Low infrastructure footprint — single Node.js machine in a lab</li>
+              </ul>
+            </div>
+          </div>
+          <div class="glass highlight-box" style="margin-top: 24px; border-left-color: var(--color-accent-2);">
+            <p><strong>Honest scope:</strong> SmartDining is a dietary <em>data collection prototype</em>, not a diagnostic tool. AI portion estimates require human review; EHR and genomics integration are future work.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 14: Demo Workflow -->
+      <section class="slide" data-slide="14">
+        <p class="slide-label">Example</p>
+        <h2>End-to-End Demo Workflow</h2>
+        <div class="slide-body workflow">
+          <div class="glass workflow-step">
+            <div class="step-num">1</div>
+            <h3>Configure</h3>
+            <p>Set AI provider &amp; register Android phone via ADB</p>
+          </div>
+          <div class="workflow-arrow">→</div>
+          <div class="glass workflow-step">
+            <div class="step-num">2</div>
+            <h3>Define Zones</h3>
+            <p>Draw seat/plate regions on reference photo</p>
+          </div>
+          <div class="workflow-arrow">→</div>
+          <div class="glass workflow-step">
+            <div class="step-num">3</div>
+            <h3>Record</h3>
+            <p>Start scheduled capture during a meal session</p>
+          </div>
+          <div class="workflow-arrow">→</div>
+          <div class="glass workflow-step">
+            <div class="step-num">4</div>
+            <h3>Process</h3>
+            <p>Batch AI analysis with optional meal context</p>
+          </div>
+          <div class="workflow-arrow">→</div>
+          <div class="glass workflow-step">
+            <div class="step-num">5</div>
+            <h3>Analyze</h3>
+            <p>Review charts &amp; export JSON for research pipeline</p>
+          </div>
+        </div>
+        <p style="text-align: center; margin-top: 20px; font-size: 16px;">
+          Diagnostic CLI: <code>npm run diagnose -- --file meal.jpg --verbose</code>
+        </p>
+      </section>
+
+      <!-- Slide 15: Roadmap -->
+      <section class="slide" data-slide="15">
+        <p class="slide-label">Roadmap</p>
+        <h2>Current State &amp; Future Direction</h2>
+        <div class="slide-body timeline">
+          <div class="glass timeline-item">
+            <span class="timeline-badge badge-now">Now</span>
+            <div>
+              <h3>Vision AI food ID + gram estimation</h3>
+              <p>Dual-provider support, zone-based multi-subject analysis, passive recording, analytics &amp; JSON export</p>
+            </div>
+          </div>
+          <div class="glass timeline-item">
+            <span class="timeline-badge badge-next">Next</span>
+            <div>
+              <h3>USDA nutrient database lookup</h3>
+              <p>Two-stage pipeline: AI identifies food + weight → validated macros from USDA FoodData Central</p>
+            </div>
+          </div>
+          <div class="glass timeline-item">
+            <span class="timeline-badge badge-future">Future</span>
+            <div>
+              <h3>Clinical integration &amp; validation</h3>
+              <p>Accuracy studies vs. weighed records, confidence scoring, FHIR nutrition modules, genomics–diet cohort linking</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 16: Thank You -->
+      <section class="slide closing-slide" data-slide="16">
+        <div class="glass-strong" style="padding: 64px 100px;">
+          <p class="slide-label">Thank You</p>
+          <h2>Questions &amp; Discussion</h2>
+          <p class="subtitle" style="margin-top: 20px;">SmartDining — Privacy-first dietary phenotyping from meal photography</p>
+          <div class="contact-row">
+            <div class="glass contact-chip">🍽️ Local Meal Analytics</div>
+            <div class="glass contact-chip">🔒 Data Stays On-Premises</div>
+            <div class="glass contact-chip">🤖 Vision AI + Research Export</div>
+          </div>
+          <p style="margin-top: 36px; font-size: 18px; color: var(--color-text-muted);">
+            NYU Langone Health · Precision Medicine · July 2026
+          </p>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <nav class="controls" aria-label="Slide navigation">
+    <button id="prev" title="Previous slide" aria-label="Previous">←</button>
+    <span class="slide-counter" id="counter">1 / 16</span>
+    <button id="next" title="Next slide" aria-label="Next">→</button>
+    <button id="fullscreen" title="Fullscreen (F)" aria-label="Fullscreen">⛶</button>
+  </nav>
+
+  <script>
+    (function () {
+      const slides = Array.from(document.querySelectorAll('.slide'));
+      const total = slides.length;
+      let current = 0;
+
+      const counter = document.getElementById('counter');
+      const progress = document.getElementById('progress');
+      const deck = document.getElementById('deck');
+      const wrapper = document.querySelector('.deck-wrapper');
+
+      function scaleDeck() {
+        const w = wrapper.clientWidth;
+        const h = wrapper.clientHeight;
+        const scale = Math.min(w / 1920, h / 1080);
+        deck.style.transform = `scale(${scale})`;
+      }
+
+      function goTo(index) {
+        if (index < 0 || index >= total) return;
+        slides[current].classList.remove('active');
+        current = index;
+        slides[current].classList.add('active');
+        counter.textContent = `${current + 1} / ${total}`;
+        progress.style.width = `${((current + 1) / total) * 100}%`;
+      }
+
+      function next() { goTo(current + 1); }
+      function prev() { goTo(current - 1); }
+
+      document.getElementById('next').addEventListener('click', next);
+      document.getElementById('prev').addEventListener('click', prev);
+      document.getElementById('fullscreen').addEventListener('click', () => {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        } else {
+          document.exitFullscreen();
+        }
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+          e.preventDefault();
+          next();
+        } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+          e.preventDefault();
+          prev();
+        } else if (e.key === 'Home') {
+          goTo(0);
+        } else if (e.key === 'End') {
+          goTo(total - 1);
+        } else if (e.key === 'f' || e.key === 'F') {
+          document.getElementById('fullscreen').click();
+        }
+      });
+
+      // Click right half to advance, left half to go back
+      deck.addEventListener('click', (e) => {
+        if (e.target.closest('button, a, code')) return;
+        const rect = deck.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        if (x > rect.width / 2) next();
+        else prev();
+      });
+
+      window.addEventListener('resize', scaleDeck);
+      scaleDeck();
+      goTo(0);
+    })();
+  </script>
+</body>
+</html>
