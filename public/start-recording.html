@@ -1,0 +1,1060 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmartDining — Start Recording</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      color-scheme: light;
+      --bg: #f4f6fa;
+      --surface: rgba(255, 255, 255, 0.92);
+      --border: rgba(0, 0, 0, 0.08);
+      --text: #1e293b;
+      --muted: #64748b;
+      --accent: #6b5ce7;
+      --accent-2: #e85d8a;
+      --success: #059669;
+      --warning: #d97706;
+      --danger: #dc2626;
+      --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+      --radius: 14px;
+      --radius-sm: 8px;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      background-image:
+        radial-gradient(ellipse at 20% 20%, rgba(124, 111, 247, 0.08) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 80%, rgba(247, 111, 155, 0.06) 0%, transparent 50%);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    .app {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 2rem 1.25rem 4rem;
+    }
+
+    .glass {
+      background: var(--surface);
+      backdrop-filter: blur(18px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-md);
+    }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    header h1 {
+      font-size: clamp(1.4rem, 4vw, 1.85rem);
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    header p {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-top: 0.25rem;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.35rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.7);
+    }
+
+    .pill-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+
+    .pill--online .pill-dot { background: var(--success); }
+    .pill--offline .pill-dot { background: var(--danger); }
+    .pill--waiting .pill-dot { background: var(--warning); animation: pulse-dot 1.2s ease infinite; }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+
+    .link-btn {
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+
+    .link-btn:hover { text-decoration: underline; }
+
+    .card {
+      padding: 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .card-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+
+    .card-desc {
+      color: var(--muted);
+      font-size: 0.88rem;
+      margin-bottom: 1rem;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .stat {
+      padding: 0.75rem;
+      border-radius: var(--radius-sm);
+      background: rgba(0, 0, 0, 0.03);
+      border: 1px solid var(--border);
+    }
+
+    .stat-label {
+      display: block;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      margin-bottom: 0.25rem;
+    }
+
+    .stat-value {
+      font-size: 1rem;
+      font-weight: 700;
+      word-break: break-word;
+    }
+
+    .stat-sub {
+      display: block;
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 0.2rem;
+    }
+
+    .stat--safe .stat-value { color: var(--success); }
+    .stat--warning .stat-value { color: var(--warning); }
+    .stat--critical .stat-value { color: var(--danger); }
+
+    .health-error {
+      color: var(--danger);
+      font-size: 0.88rem;
+      margin-top: 0.5rem;
+    }
+
+    .config-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+    }
+
+    input[type="number"] {
+      width: 100%;
+      padding: 0.6rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 1rem;
+      background: #fff;
+    }
+
+    input:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.85rem 1.5rem;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.15s, opacity 0.15s;
+    }
+
+    .btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn:not(:disabled):hover { transform: translateY(-1px); }
+
+    .btn-start {
+      background: linear-gradient(135deg, var(--accent), #8b7cf0);
+      color: #fff;
+      flex: 1;
+      min-width: 160px;
+    }
+
+    .btn-stop {
+      background: linear-gradient(135deg, var(--danger), #ef4444);
+      color: #fff;
+      flex: 1;
+      min-width: 160px;
+    }
+
+    .recording-active .btn-start-area {
+      animation: record-pulse 2s ease infinite;
+    }
+
+    @keyframes record-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+      50% { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0.15); }
+    }
+
+    .live-panel {
+      border-top: 1px solid var(--border);
+      padding-top: 1rem;
+      margin-top: 0.5rem;
+    }
+
+    .live-panel[hidden] { display: none; }
+
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .badge-recording { background: rgba(5, 150, 105, 0.15); color: var(--success); }
+    .badge-stopped { background: rgba(100, 116, 139, 0.15); color: var(--muted); }
+    .badge-error { background: rgba(220, 38, 38, 0.12); color: var(--danger); }
+    .badge-success { background: rgba(5, 150, 105, 0.15); color: var(--success); }
+
+    .live-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+    }
+
+    .progress-wrap { margin-top: 1rem; }
+
+    .progress-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+
+    .progress-bar {
+      height: 8px;
+      background: rgba(0, 0, 0, 0.06);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      border-radius: 999px;
+      transition: width 0.4s ease;
+    }
+
+    .inline-note {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-top: 0.75rem;
+    }
+
+    .inline-error {
+      font-size: 0.85rem;
+      color: var(--danger);
+      margin-top: 0.5rem;
+    }
+
+    .summary-panel {
+      border-top: 1px solid var(--border);
+      margin-top: 1.25rem;
+      padding-top: 1.25rem;
+    }
+
+    .summary-panel[hidden] { display: none; }
+
+    .summary-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .summary-header h3 {
+      font-size: 1.1rem;
+    }
+
+    .thumb-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+
+    .thumb-strip img {
+      width: 72px;
+      height: 72px;
+      object-fit: cover;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+
+    .toast-container {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .toast {
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-sm);
+      background: var(--text);
+      color: #fff;
+      font-size: 0.88rem;
+      box-shadow: var(--shadow-md);
+      animation: toast-in 0.25s ease;
+    }
+
+    .toast-success { background: var(--success); }
+    .toast-error { background: var(--danger); }
+    .toast-info { background: #334155; }
+
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(244, 246, 250, 0.92);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      text-align: center;
+      padding: 2rem;
+    }
+
+    .overlay[hidden] { display: none; }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(107, 92, 231, 0.2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 1rem;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .overlay h2 { font-size: 1.25rem; margin-bottom: 0.5rem; }
+    .overlay p { color: var(--muted); max-width: 360px; }
+  </style>
+</head>
+<body>
+  <div id="server-overlay" class="overlay">
+    <div class="spinner"></div>
+    <h2>Waiting for server…</h2>
+    <p>SmartDining must be running on this machine. Use <code>start-recording.bat</code> or run <code>npm run dev</code>.</p>
+  </div>
+
+  <div class="app" id="app" hidden>
+    <header>
+      <div>
+        <h1>Start Recording</h1>
+        <p>Scheduled photo capture from your connected phone</p>
+      </div>
+      <div class="header-actions">
+        <span id="server-pill" class="pill pill--waiting">
+          <span class="pill-dot"></span>
+          <span id="server-pill-text">Connecting</span>
+        </span>
+        <a href="/" class="link-btn">Main app →</a>
+      </div>
+    </header>
+
+    <section class="glass card" id="health-card">
+      <h2 class="card-title">Phone health</h2>
+      <p class="card-desc" id="health-device-desc">Checking device status…</p>
+      <div class="stat-grid" id="health-stats"></div>
+      <p class="health-error" id="health-error" hidden></p>
+    </section>
+
+    <section class="glass card" id="recording-card">
+      <h2 class="card-title">Recording</h2>
+      <p class="card-desc">
+        Photos are saved to <code>data/recordings/</code> on this machine. The capture loop runs server-side and continues if you close this tab.
+      </p>
+
+      <div class="config-grid">
+        <div>
+          <label for="interval-input">Frequency (seconds per photo)</label>
+          <input type="number" id="interval-input" min="5" max="600" value="30">
+        </div>
+        <div>
+          <label for="max-input">Max length (minutes)</label>
+          <input type="number" id="max-input" min="1" max="240" value="30">
+        </div>
+      </div>
+
+      <div class="actions btn-start-area" id="btn-area">
+        <button type="button" class="btn btn-start" id="start-btn">Start recording</button>
+        <button type="button" class="btn btn-stop" id="stop-btn" disabled>Stop recording</button>
+      </div>
+
+      <div class="live-panel" id="live-panel" hidden>
+        <div class="live-header">
+          <strong>Live session</strong>
+          <span id="live-badge" class="badge badge-recording">Recording</span>
+        </div>
+        <div class="stat-grid">
+          <div class="stat">
+            <span class="stat-label">Elapsed</span>
+            <span class="stat-value" id="stat-elapsed">00:00</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Remaining</span>
+            <span class="stat-value" id="stat-remaining">—</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Frames</span>
+            <span class="stat-value" id="stat-frames">0</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Next capture</span>
+            <span class="stat-value" id="stat-next">—</span>
+          </div>
+        </div>
+        <div class="progress-wrap">
+          <div class="progress-label">
+            <span>Progress</span>
+            <span id="stat-progress-pct">0%</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+          </div>
+        </div>
+        <p class="inline-note" id="session-meta" hidden></p>
+        <p class="inline-error" id="last-error" hidden></p>
+      </div>
+
+      <div class="summary-panel" id="summary-panel" hidden>
+        <div class="summary-header">
+          <h3>Session summary</h3>
+          <span id="summary-badge" class="badge badge-stopped">Stopped</span>
+        </div>
+        <div class="stat-grid" id="summary-stats"></div>
+        <div class="thumb-strip" id="thumb-strip"></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <script>
+    const DEFAULT_INTERVAL = 30;
+    const DEFAULT_MAX_MINUTES = 30;
+    const RECORDING_POLL_MS = 2500;
+    const HEALTH_POLL_MS = 5000;
+    const SERVER_WAIT_MS = 2000;
+
+    const BATTERY_THRESHOLDS = {
+      safeMin: 20, safeMax: 80,
+      warningLowMax: 19, warningHighMin: 81,
+      criticalLowMax: 14, criticalHighMin: 95,
+    };
+
+    const TEMPERATURE_THRESHOLDS = {
+      safeMin: 10, safeMax: 37,
+      warningMin: 38, warningMax: 42,
+      criticalLowMax: 9, criticalHighMin: 43,
+    };
+
+    let status = null;
+    let health = null;
+    let phoneStatus = null;
+    let healthAtStart = null;
+    let healthAtEnd = null;
+    let recordingPollTimer = null;
+    let healthPollTimer = null;
+    let starting = false;
+    let stopping = false;
+    let serverOnline = false;
+
+    async function apiFetch(url, options = {}) {
+      const res = await fetch(url, {
+        headers: { 'Content-Type': 'application/json', ...options.headers },
+        ...options,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || 'Request failed');
+      }
+      return res.json();
+    }
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = `toast toast-${type}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s';
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+
+    function escapeHtml(str) {
+      return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function formatDuration(ms) {
+      const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      const parts = [];
+      if (hours > 0) parts.push(String(hours).padStart(2, '0'));
+      parts.push(String(minutes).padStart(2, '0'));
+      parts.push(String(seconds).padStart(2, '0'));
+      return parts.join(':');
+    }
+
+    function formatBytes(bytes) {
+      if (bytes == null || !Number.isFinite(bytes)) return '—';
+      const units = ['B', 'KB', 'MB', 'GB'];
+      let value = bytes;
+      let unit = 0;
+      while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024;
+        unit += 1;
+      }
+      return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+    }
+
+    function formatLocation(loc) {
+      if (!loc?.available) return loc?.reason || 'Unavailable';
+      const lat = loc.latitude?.toFixed(5) ?? '?';
+      const lng = loc.longitude?.toFixed(5) ?? '?';
+      const acc = loc.accuracyMeters != null ? ` ±${Math.round(loc.accuracyMeters)}m` : '';
+      const provider = loc.provider ? ` (${loc.provider})` : '';
+      return `${lat}, ${lng}${acc}${provider}`;
+    }
+
+    function formatBattery(battery) {
+      if (battery?.level == null) return '—';
+      const charging = battery.charging ? ' (charging)' : '';
+      return `${battery.level}%${charging}`;
+    }
+
+    function formatStorage(storage) {
+      if (storage?.usedBytes == null || storage?.totalBytes == null) return '—';
+      const pct = storage.usedPercent != null ? ` (${storage.usedPercent}%)` : '';
+      return `${formatBytes(storage.usedBytes)} / ${formatBytes(storage.totalBytes)}${pct}`;
+    }
+
+    function formatTemperature(celsius) {
+      if (celsius == null || !Number.isFinite(celsius)) return '—';
+      return `${celsius.toFixed(1)}°C`;
+    }
+
+    function formatDateTime(iso) {
+      if (!iso) return '—';
+      return new Date(iso).toLocaleString();
+    }
+
+    function evaluateBatteryLevel(level) {
+      if (level == null || !Number.isFinite(level)) return null;
+      if (level <= BATTERY_THRESHOLDS.criticalLowMax || level >= BATTERY_THRESHOLDS.criticalHighMin) return 'critical';
+      if (level <= BATTERY_THRESHOLDS.warningLowMax || level >= BATTERY_THRESHOLDS.warningHighMin) return 'warning';
+      return 'safe';
+    }
+
+    function evaluateTemperatureLevel(celsius) {
+      if (celsius == null || !Number.isFinite(celsius)) return null;
+      if (celsius <= TEMPERATURE_THRESHOLDS.criticalLowMax || celsius >= TEMPERATURE_THRESHOLDS.criticalHighMin) return 'critical';
+      if (celsius >= TEMPERATURE_THRESHOLDS.warningMin && celsius <= TEMPERATURE_THRESHOLDS.warningMax) return 'warning';
+      return 'safe';
+    }
+
+    function levelSubtext(level, kind) {
+      if (!level) return '';
+      const label = level === 'safe' ? 'Safe' : level === 'warning' ? 'Caution' : 'Critical';
+      if (kind === 'battery') return `${label} · target ${BATTERY_THRESHOLDS.safeMin}–${BATTERY_THRESHOLDS.safeMax}%`;
+      if (kind === 'temp') return `${label} · target ${TEMPERATURE_THRESHOLDS.safeMin}–${TEMPERATURE_THRESHOLDS.safeMax}°C`;
+      return label;
+    }
+
+    function renderStat(label, value, { level = null, subtext = '' } = {}) {
+      const levelClass = level ? ` stat--${level}` : '';
+      return `
+        <div class="stat${levelClass}">
+          <span class="stat-label">${escapeHtml(label)}</span>
+          <span class="stat-value">${escapeHtml(value)}</span>
+          ${subtext ? `<span class="stat-sub">${escapeHtml(subtext)}</span>` : ''}
+        </div>`;
+    }
+
+    function setServerPill(online, text) {
+      const pill = document.getElementById('server-pill');
+      const pillText = document.getElementById('server-pill-text');
+      pill.className = `pill pill--${online ? 'online' : 'offline'}`;
+      pillText.textContent = text || (online ? 'Server online' : 'Server offline');
+    }
+
+    async function waitForServer() {
+      const overlay = document.getElementById('server-overlay');
+      const app = document.getElementById('app');
+
+      while (true) {
+        try {
+          await apiFetch('/api/recording/status');
+          serverOnline = true;
+          overlay.hidden = true;
+          app.hidden = false;
+          setServerPill(true, 'Server online');
+          return;
+        } catch {
+          serverOnline = false;
+          setServerPill(false, 'Waiting…');
+          await new Promise((r) => setTimeout(r, SERVER_WAIT_MS));
+        }
+      }
+    }
+
+    function isPhoneReady() {
+      if (!phoneStatus) return false;
+      if (!phoneStatus.adbAvailable) return false;
+      if (!phoneStatus.activeDevice) return false;
+      return phoneStatus.connected === true || phoneStatus.activeDevice.connected === true;
+    }
+
+    async function loadPhoneStatus() {
+      try {
+        phoneStatus = await apiFetch('/api/phone/status');
+      } catch (err) {
+        phoneStatus = null;
+      }
+      syncStartButton();
+    }
+
+    async function loadHealth() {
+      const errorEl = document.getElementById('health-error');
+      const descEl = document.getElementById('health-device-desc');
+      const statsEl = document.getElementById('health-stats');
+
+      try {
+        health = await apiFetch('/api/phone/health?refreshIntervalSec=5');
+        errorEl.hidden = true;
+
+        const deviceName = health.device?.name || 'Unknown device';
+        descEl.textContent = `${deviceName} · connected`;
+
+        const batteryLevel = evaluateBatteryLevel(health.battery?.level);
+        const tempLevel = evaluateTemperatureLevel(health.battery?.temperatureCelsius);
+
+        statsEl.innerHTML = [
+          renderStat('Battery', formatBattery(health.battery), {
+            level: batteryLevel,
+            subtext: levelSubtext(batteryLevel, 'battery'),
+          }),
+          renderStat('Temperature', formatTemperature(health.battery?.temperatureCelsius), {
+            level: tempLevel,
+            subtext: levelSubtext(tempLevel, 'temp'),
+          }),
+          renderStat('Storage', formatStorage(health.storage)),
+          renderStat('Location', formatLocation(health.location)),
+          renderStat('Updated', formatDateTime(health.fetchedAt)),
+        ].join('');
+      } catch (err) {
+        health = null;
+        statsEl.innerHTML = '';
+        descEl.textContent = 'Device not available';
+        errorEl.hidden = false;
+        errorEl.textContent = err.message;
+      }
+
+      await loadPhoneStatus();
+    }
+
+    function startHealthPolling() {
+      stopHealthPolling();
+      healthPollTimer = setInterval(() => loadHealth(), HEALTH_POLL_MS);
+    }
+
+    function stopHealthPolling() {
+      if (healthPollTimer) {
+        clearInterval(healthPollTimer);
+        healthPollTimer = null;
+      }
+    }
+
+    function progressPercent() {
+      if (!status?.maxDurationMs) return 0;
+      return Math.min(100, Math.round((status.elapsedMs / status.maxDurationMs) * 100));
+    }
+
+    function stopReasonLabel(reason) {
+      switch (reason) {
+        case 'max_duration': return 'Stopped automatically after max duration';
+        case 'too_many_failures': return 'Stopped after repeated capture failures';
+        case 'manual': return 'Stopped manually';
+        default: return reason || '—';
+      }
+    }
+
+    function phoneCleanupLabel(cleanup) {
+      if (!cleanup) return '—';
+      const parts = [];
+      if (cleanup.deletedCount > 0) {
+        parts.push(`Removed ${cleanup.deletedCount} photo${cleanup.deletedCount === 1 ? '' : 's'} from phone`);
+      }
+      if (cleanup.screenClosed) parts.push('display turned off');
+      if (cleanup.failed?.length) {
+        parts.push(`${cleanup.failed.length} delete failure${cleanup.failed.length === 1 ? '' : 's'}`);
+      }
+      if (cleanup.error) parts.push(`cleanup error: ${cleanup.error}`);
+      return parts.length ? parts.join('; ') : 'No cleanup needed';
+    }
+
+    function outcomeBadge(statusValue, stopReason) {
+      if (statusValue === 'error' || stopReason === 'too_many_failures') {
+        return { text: 'Error', className: 'badge-error' };
+      }
+      if (statusValue === 'stopped') {
+        return { text: 'Success', className: 'badge-success' };
+      }
+      return { text: 'Stopped', className: 'badge-stopped' };
+    }
+
+    function renderSummary() {
+      const panel = document.getElementById('summary-panel');
+      const statsEl = document.getElementById('summary-stats');
+      const thumbEl = document.getElementById('thumb-strip');
+      const badge = document.getElementById('summary-badge');
+
+      if (!status || (status.status !== 'stopped' && status.status !== 'error')) {
+        panel.hidden = true;
+        return;
+      }
+
+      panel.hidden = false;
+      const outcome = outcomeBadge(status.status, status.stopReason);
+      badge.textContent = outcome.text;
+      badge.className = `badge ${outcome.className}`;
+
+      const durationMs = status.startedAt && status.stoppedAt
+        ? Date.parse(status.stoppedAt) - Date.parse(status.startedAt)
+        : status.elapsedMs || 0;
+
+      statsEl.innerHTML = [
+        renderStat('Session', status.sessionId || '—'),
+        renderStat('Device', status.deviceName || '—'),
+        renderStat('Started', formatDateTime(status.startedAt)),
+        renderStat('Stopped', formatDateTime(status.stoppedAt)),
+        renderStat('Duration', formatDuration(durationMs)),
+        renderStat('Frames captured', String(status.framesCaptured ?? 0)),
+        renderStat('Stop reason', stopReasonLabel(status.stopReason)),
+        renderStat('Failures', String(status.errors?.length ?? 0)),
+        renderStat('Consecutive failures', String(status.consecutiveFailures ?? 0)),
+        renderStat('Last error', status.lastError || 'None'),
+        renderStat('Location (start)', formatLocation(healthAtStart?.location)),
+        renderStat('Location (end)', formatLocation(healthAtEnd?.location)),
+        renderStat('Battery (start)', formatBattery(healthAtStart?.battery)),
+        renderStat('Battery (end)', formatBattery(healthAtEnd?.battery)),
+        renderStat('Phone cleanup', phoneCleanupLabel(status.phoneCleanup)),
+      ].join('');
+
+      const frames = status.frames || [];
+      thumbEl.innerHTML = frames.length
+        ? frames.map((f) => `<img src="${escapeHtml(f.url)}" alt="${escapeHtml(f.file)}" title="${escapeHtml(f.file)}">`).join('')
+        : '<p class="inline-note">No frames captured.</p>';
+    }
+
+    function updateLivePanel() {
+      const isRecording = status?.status === 'recording';
+      const livePanel = document.getElementById('live-panel');
+      const btnArea = document.getElementById('btn-area');
+      const recordingCard = document.getElementById('recording-card');
+
+      livePanel.hidden = !isRecording && status?.status !== 'recording';
+      recordingCard.classList.toggle('recording-active', isRecording);
+      btnArea.classList.toggle('recording-active', isRecording);
+
+      if (!isRecording && status?.status !== 'recording') {
+        if (status?.status === 'stopped' || status?.status === 'error') {
+          livePanel.hidden = true;
+        }
+      } else {
+        livePanel.hidden = false;
+      }
+
+      const badge = document.getElementById('live-badge');
+      if (status?.status === 'recording') {
+        badge.textContent = 'Recording';
+        badge.className = 'badge badge-recording';
+      } else if (status?.status === 'error') {
+        badge.textContent = 'Error';
+        badge.className = 'badge badge-error';
+      } else {
+        badge.textContent = 'Stopped';
+        badge.className = 'badge badge-stopped';
+      }
+
+      document.getElementById('stat-elapsed').textContent = formatDuration(status?.elapsedMs || 0);
+      document.getElementById('stat-remaining').textContent = isRecording
+        ? formatDuration(status?.remainingMs || 0)
+        : '—';
+      document.getElementById('stat-frames').textContent = String(status?.framesCaptured ?? 0);
+      document.getElementById('stat-next').textContent = isRecording && status?.nextCaptureInMs != null
+        ? formatDuration(status.nextCaptureInMs)
+        : '—';
+
+      const pct = progressPercent();
+      document.getElementById('stat-progress-pct').textContent = `${pct}%`;
+      document.getElementById('progress-fill').style.width = `${pct}%`;
+
+      const meta = document.getElementById('session-meta');
+      if (status?.sessionId) {
+        meta.hidden = false;
+        meta.innerHTML = `Session: <code>${escapeHtml(status.sessionId)}</code>`;
+      } else {
+        meta.hidden = true;
+      }
+
+      const lastError = document.getElementById('last-error');
+      if (status?.lastError) {
+        lastError.hidden = false;
+        lastError.textContent = `Last error: ${status.lastError}`;
+      } else {
+        lastError.hidden = true;
+      }
+
+      syncControls();
+      renderSummary();
+    }
+
+    function syncControls() {
+      const isRecording = status?.status === 'recording';
+      const intervalInput = document.getElementById('interval-input');
+      const maxInput = document.getElementById('max-input');
+      const startBtn = document.getElementById('start-btn');
+      const stopBtn = document.getElementById('stop-btn');
+
+      intervalInput.disabled = isRecording || starting;
+      maxInput.disabled = isRecording || starting;
+      startBtn.disabled = isRecording || starting || stopping || !isPhoneReady();
+      stopBtn.disabled = !isRecording || stopping;
+
+      startBtn.textContent = starting ? 'Starting…' : 'Start recording';
+      stopBtn.textContent = stopping ? 'Stopping…' : 'Stop recording';
+    }
+
+    function syncStartButton() {
+      syncControls();
+    }
+
+    function getFormValues() {
+      return {
+        intervalSeconds: Number(document.getElementById('interval-input').value) || DEFAULT_INTERVAL,
+        maxMinutes: Number(document.getElementById('max-input').value) || DEFAULT_MAX_MINUTES,
+      };
+    }
+
+    function stopRecordingPoll() {
+      if (recordingPollTimer) {
+        clearInterval(recordingPollTimer);
+        recordingPollTimer = null;
+      }
+    }
+
+    function startRecordingPoll() {
+      stopRecordingPoll();
+      recordingPollTimer = setInterval(async () => {
+        try {
+          status = await apiFetch('/api/recording/status');
+          updateLivePanel();
+          if (status.status !== 'recording') {
+            stopRecordingPoll();
+            if (status.status === 'stopped' || status.status === 'error') {
+              try {
+                healthAtEnd = await apiFetch('/api/phone/health?refreshIntervalSec=5');
+              } catch {
+                healthAtEnd = health;
+              }
+              renderSummary();
+            }
+          }
+        } catch (err) {
+          console.error('recording poll failed:', err);
+        }
+      }, RECORDING_POLL_MS);
+    }
+
+    async function loadRecordingStatus() {
+      status = await apiFetch('/api/recording/status');
+      if (status.status === 'recording') {
+        document.getElementById('live-panel').hidden = false;
+        startRecordingPoll();
+      }
+      if (status.status === 'stopped' || status.status === 'error') {
+        renderSummary();
+      }
+      updateLivePanel();
+    }
+
+    document.getElementById('start-btn').addEventListener('click', async () => {
+      const { intervalSeconds, maxMinutes } = getFormValues();
+
+      if (intervalSeconds < 5 || intervalSeconds > 600) {
+        showToast('Frequency must be between 5 and 600 seconds.', 'error');
+        return;
+      }
+      if (maxMinutes < 1 || maxMinutes > 240) {
+        showToast('Max length must be between 1 and 240 minutes.', 'error');
+        return;
+      }
+      if (!isPhoneReady()) {
+        showToast('No connected phone. Configure one in the main app first.', 'error');
+        return;
+      }
+
+      starting = true;
+      document.getElementById('summary-panel').hidden = true;
+      healthAtStart = health;
+      healthAtEnd = null;
+      syncControls();
+
+      try {
+        try {
+          healthAtStart = await apiFetch('/api/phone/health?refreshIntervalSec=5');
+        } catch {
+          /* use last polled health */
+        }
+
+        status = await apiFetch('/api/recording/start', {
+          method: 'POST',
+          body: JSON.stringify({ intervalSeconds, maxMinutes }),
+        });
+        showToast('Recording started', 'success');
+        startRecordingPoll();
+        updateLivePanel();
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        starting = false;
+        syncControls();
+      }
+    });
+
+    document.getElementById('stop-btn').addEventListener('click', async () => {
+      stopping = true;
+      syncControls();
+
+      try {
+        status = await apiFetch('/api/recording/stop', { method: 'POST' });
+        stopRecordingPoll();
+        try {
+          healthAtEnd = await apiFetch('/api/phone/health?refreshIntervalSec=5');
+        } catch {
+          healthAtEnd = health;
+        }
+        showToast('Recording stopped', 'info');
+        updateLivePanel();
+        renderSummary();
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        stopping = false;
+        syncControls();
+      }
+    });
+
+    async function init() {
+      await waitForServer();
+      await Promise.all([loadHealth(), loadRecordingStatus()]);
+      startHealthPolling();
+      syncControls();
+    }
+
+    init().catch((err) => {
+      document.getElementById('server-overlay').hidden = false;
+      document.getElementById('app').hidden = true;
+      showToast(err.message, 'error');
+    });
+  </script>
+</body>
+</html>
