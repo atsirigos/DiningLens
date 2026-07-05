@@ -2,6 +2,8 @@
 
 A local-only web app that reads meal photos from a `data/` folder, runs AI analysis via the Gemini API, and generates meal analytics. No cloud uploads. All data stays on your machine in a local SQLite database and JSON cache files.
 
+📖 **[Full documentation (Wiki)](https://github.com/atsirigos/DiningLens/wiki)** — source files in [`docs/wiki/`](docs/wiki/)
+
 ## Setup
 
 1. **Install dependencies**
@@ -31,6 +33,13 @@ A local-only web app that reads meal photos from a `data/` folder, runs AI analy
    ```
 
 6. Open [http://localhost:3000](http://localhost:3000)
+
+## Documentation
+
+- **[GitHub Wiki](https://github.com/atsirigos/DiningLens/wiki)** — full project docs (architecture, features, API, internship context)
+- [`docs/wiki/`](docs/wiki/) — wiki source Markdown (version-controlled)
+- [`WEBAPP_INTEGRATION.md`](WEBAPP_INTEGRATION.md) — ADB phone capture integration guide
+- [`Presentation/dininglens-presentation.html`](Presentation/dininglens-presentation.html) — project presentation deck
 
 ## Project board
 
