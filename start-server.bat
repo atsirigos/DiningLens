@@ -11,7 +11,7 @@ if exist ".env" (
 )
 
 echo.
-echo  SmartDining Server
+echo  DiningLens Server
 echo  ========================================
 echo.
 echo  Host IP addresses (use from other devices on your network):

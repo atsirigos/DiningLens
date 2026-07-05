@@ -11,7 +11,7 @@ if exist ".env" (
 )
 
 echo.
-echo  SmartDining — Start Recording
+echo  DiningLens — Start Recording
 echo  ========================================
 echo.
 
@@ -23,7 +23,7 @@ if "%SERVER_UP%"=="1" (
   echo  Server already running on port %PORT%.
 ) else (
   echo  Server not detected. Starting in a new window...
-  start "SmartDining" cmd /c "npm run dev"
+  start "DiningLens" cmd /c "npm run dev"
   echo  Waiting for server to start...
   set /a ATTEMPTS=0
   :wait_loop

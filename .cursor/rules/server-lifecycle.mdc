@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Dev Server Lifecycle
 
-The user is solely responsible for starting and stopping the SmartDining dev server.
+The user is solely responsible for starting and stopping the DiningLens dev server.
 
 ## Do NOT (unless the user explicitly asks)
 

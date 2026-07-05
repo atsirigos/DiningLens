@@ -189,7 +189,7 @@ function exportResults() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'smartdining-results.json';
+  a.download = 'dininglens-results.json';
   a.click();
   URL.revokeObjectURL(url);
   showToast('Results exported', 'success');

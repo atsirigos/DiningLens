@@ -1,4 +1,4 @@
-# SmartDining Local Web App — Cursor Build Plan
+# DiningLens Local Web App — Cursor Build Plan
 
 > Paste this file into your Cursor project root as `CURSOR_PLAN.md`.
 > Work through phases in order. Each phase ends with a checkpoint before moving on.
@@ -16,7 +16,7 @@ A **local-only** web app that reads photos/videos from a `Data/` folder, runs AI
 ## 📁 Target Folder Structure
 
 ```
-SmartDining-WebApp/
+DiningLens-WebApp/
 ├── server/
 │   ├── server.js              # Express entry point
 │   ├── routes/
@@ -355,7 +355,7 @@ Run through these after each phase:
 Use these prompts in Cursor chat to start each phase:
 
 **Phase 1:**
-> "Create the SmartDining folder structure and an Express server at server/server.js that serves public/ as static files and listens on port 3000."
+> "Create the DiningLens folder structure and an Express server at server/server.js that serves public/ as static files and listens on port 3000."
 
 **Phase 2:**
 > "Build server/utils/fileScanner.js that scans the Data/ folder and returns an array of file metadata objects. Then create server/routes/files.js with GET /api/files and GET /api/file/:name."

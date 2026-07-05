@@ -1,5 +1,5 @@
 {
-  "name": "smartdining",
+  "name": "dininglens",
   "version": "1.0.0",
   "description": "Local web app for AI-powered meal analytics",
   "main": "server/server.js",

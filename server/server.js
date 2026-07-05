@@ -51,6 +51,6 @@ app.use('/api', recordingRouter);
 app.use('/api', trashRouter);
 
 app.listen(PORT, () => {
-  console.log(`SmartDining server running at http://localhost:${PORT}`);
+  console.log(`DiningLens server running at http://localhost:${PORT}`);
   startChargeManager();
 });

@@ -1,4 +1,4 @@
-# SmartDining
+# DiningLens
 
 A local-only web app that reads meal photos from a `data/` folder, runs AI analysis via the Gemini API, and generates meal analytics. No cloud uploads. All data stays on your machine in a local SQLite database and JSON cache files.
 
@@ -47,7 +47,7 @@ Open [`project-board.html`](project-board.html) in your browser for standalone t
 ## Project Structure
 
 ```
-SmartDining/
+DiningLens/
 ├── server/          Express backend + Gemini integration
 ├── public/          Frontend SPA (HTML/CSS/JS)
 ├── data/            Your meal photos (not tracked in git)

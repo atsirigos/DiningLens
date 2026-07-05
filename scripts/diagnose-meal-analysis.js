@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * SmartDining meal analysis diagnostic tool.
+ * DiningLens meal analysis diagnostic tool.
  * Runs preflight checks and live API analysis on images in data/.
  *
  * Usage:
@@ -17,7 +17,7 @@ require('dotenv').config();
 
 const ROOT = path.join(__dirname, '..');
 const DATA_DIR = path.join(ROOT, 'data');
-const DB_PATH = path.join(ROOT, 'db', 'smartdining.db');
+const { DB_PATH } = require('../server/db/database');
 
 const { scanDataFolder } = require('../server/utils/fileScanner');
 const { getSettings } = require('../server/db/settingsStore');
@@ -68,7 +68,7 @@ function parseArgs(argv) {
 
 function printHelp() {
   console.log(`
-SmartDining meal analysis diagnostic
+DiningLens meal analysis diagnostic
 
 Options:
   --file <name>      Analyze a single image from data/ (default: all images)
@@ -348,7 +348,7 @@ async function main() {
     process.exit(0);
   }
 
-  console.log('\nSmartDining Meal Analysis Diagnostic\n');
+  console.log('\nDiningLens Meal Analysis Diagnostic\n');
 
   const settings = getSettings();
   const { results: envResults, settingsOk } = checkEnvironment(settings);

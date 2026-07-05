@@ -3,12 +3,31 @@ const fs = require('fs');
 const Database = require('better-sqlite3');
 
 const DB_DIR = path.join(__dirname, '..', '..', 'db');
-const DB_PATH = path.join(DB_DIR, 'smartdining.db');
+const LEGACY_DB_PATH = path.join(DB_DIR, 'smartdining.db');
+const DB_PATH = path.join(DB_DIR, 'dininglens.db');
 
 let db;
 
+function migrateLegacyDatabase() {
+  fs.mkdirSync(DB_DIR, { recursive: true });
+  if (fs.existsSync(DB_PATH) || !fs.existsSync(LEGACY_DB_PATH)) {
+    return;
+  }
+
+  fs.renameSync(LEGACY_DB_PATH, DB_PATH);
+
+  for (const suffix of ['-wal', '-shm']) {
+    const legacySidecar = `${LEGACY_DB_PATH}${suffix}`;
+    const newSidecar = `${DB_PATH}${suffix}`;
+    if (fs.existsSync(legacySidecar)) {
+      fs.renameSync(legacySidecar, newSidecar);
+    }
+  }
+}
+
 function getDb() {
   if (!db) {
+    migrateLegacyDatabase();
     fs.mkdirSync(DB_DIR, { recursive: true });
     db = new Database(DB_PATH);
     db.pragma('journal_mode = WAL');
@@ -30,4 +49,4 @@ function closeDb() {
   }
 }
 
-module.exports = { getDb, closeDb, DB_PATH };
+module.exports = { getDb, closeDb, DB_PATH, LEGACY_DB_PATH };
