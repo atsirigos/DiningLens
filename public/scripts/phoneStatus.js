@@ -18,6 +18,9 @@ const HEALTH_LEVEL_COLORS = {
 };
 const CHART_TEXT = '#475569';
 const CHART_GRID = 'rgba(0, 0, 0, 0.06)';
+const CHART_HISTORY_DAYS = 7;
+const DAY_SEC = 24 * 60 * 60;
+const HOUR_SEC = 60 * 60;
 
 /** Battery % thresholds (aligned with charge-control 20–80% target). */
 const BATTERY_THRESHOLDS = {
@@ -88,15 +91,6 @@ function chartIntervalSeconds() {
   return Math.max(1, Math.round(deltas[Math.floor(deltas.length / 2)]));
 }
 
-function formatAxisTick(seconds, stepSec) {
-  if (stepSec >= 60) {
-    const minutes = Math.floor(seconds / 60);
-    const secs = Math.round(seconds % 60);
-    return secs ? `${minutes}:${String(secs).padStart(2, '0')}` : `${minutes}m`;
-  }
-  return `${Math.round(seconds)}s`;
-}
-
 function chartTimeSpanSeconds() {
   if (healthHistory.length < 2) return chartIntervalSeconds();
   const t0 = Date.parse(healthHistory[0].t);
@@ -104,10 +98,56 @@ function chartTimeSpanSeconds() {
   return Math.max(chartIntervalSeconds(), Math.round((t1 - t0) / 1000));
 }
 
+function chartAxisStepSeconds(spanSec) {
+  if (spanSec >= DAY_SEC * 3) return DAY_SEC;
+  if (spanSec >= DAY_SEC) return HOUR_SEC * 6;
+  if (spanSec >= HOUR_SEC * 6) return HOUR_SEC;
+  if (spanSec >= HOUR_SEC) return 15 * 60;
+  if (spanSec >= 15 * 60) return 5 * 60;
+  const sampleStep = chartIntervalSeconds();
+  return Math.max(sampleStep, Math.ceil(spanSec / 10));
+}
+
+function historyStartMs() {
+  if (!healthHistory.length) return Date.now();
+  return Date.parse(healthHistory[0].t);
+}
+
+function formatAxisTick(seconds, spanSec) {
+  const date = new Date(historyStartMs() + seconds * 1000);
+
+  if (spanSec >= DAY_SEC * 2) {
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+  if (spanSec >= DAY_SEC) {
+    return date.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+    });
+  }
+  if (spanSec >= HOUR_SEC) {
+    return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+  if (spanSec >= 60) {
+    const minutes = Math.floor(seconds / 60);
+    const secs = Math.round(seconds % 60);
+    return secs ? `${minutes}:${String(secs).padStart(2, '0')}` : `${minutes}m`;
+  }
+  return `${Math.round(seconds)}s`;
+}
+
+function chartAxisTitle(spanSec) {
+  if (spanSec >= DAY_SEC * 2) return `Last ${CHART_HISTORY_DAYS} days`;
+  if (spanSec >= DAY_SEC) return 'Time (days)';
+  if (spanSec >= HOUR_SEC) return 'Time (hours)';
+  return 'Time';
+}
+
 function seriesData(field) {
   if (!healthHistory.length) return [];
 
-  const t0 = Date.parse(healthHistory[0].t);
+  const t0 = historyStartMs();
   return healthHistory
     .map((point) => ({
       x: Math.round((Date.parse(point.t) - t0) / 1000),
@@ -136,8 +176,8 @@ function canDrawMetricChart(metric) {
 }
 
 function baseChartOptions({ yMin = undefined, yMax = undefined, yTitle = '' } = {}) {
-  const stepSec = chartIntervalSeconds();
   const spanSec = chartTimeSpanSeconds();
+  const stepSec = chartAxisStepSeconds(spanSec);
 
   return {
     responsive: true,
@@ -149,6 +189,15 @@ function baseChartOptions({ yMin = undefined, yMax = undefined, yTitle = '' } = 
       legend: {
         labels: { color: CHART_TEXT },
       },
+      tooltip: {
+        callbacks: {
+          title: (items) => {
+            const x = items?.[0]?.parsed?.x;
+            if (x == null) return '';
+            return new Date(historyStartMs() + x * 1000).toLocaleString();
+          },
+        },
+      },
     },
     scales: {
       x: {
@@ -157,14 +206,14 @@ function baseChartOptions({ yMin = undefined, yMax = undefined, yTitle = '' } = 
         max: spanSec,
         title: {
           display: true,
-          text: stepSec >= 60 ? 'Time (min:sec)' : 'Time (seconds)',
+          text: chartAxisTitle(spanSec),
           color: CHART_TEXT,
         },
         ticks: {
           stepSize: stepSec,
           color: CHART_TEXT,
-          maxTicksLimit: Math.min(12, Math.ceil(spanSec / stepSec) + 1),
-          callback: (value) => formatAxisTick(value, stepSec),
+          maxTicksLimit: 10,
+          callback: (value) => formatAxisTick(value, spanSec),
         },
         grid: { color: CHART_GRID },
       },
@@ -709,6 +758,11 @@ function renderContent() {
           <h3 class="recording-section-title">Status history</h3>
           <button type="button" class="btn btn-ghost btn-sm" id="phone-status-clear-chart">Clear graphs</button>
         </div>
+        <p class="phone-health-chart-hint">
+          Showing readings from the last ${CHART_HISTORY_DAYS} days
+          ${healthHistory.length ? ` · ${healthHistory.length} sample${healthHistory.length === 1 ? '' : 's'}` : ''}.
+          Keep this tab open with auto-refresh (or open it daily) so samples accumulate.
+        </p>
         <p class="phone-health-chart-hint" id="phone-status-charts-empty" hidden>
           Refresh at least twice to start building graphs. Enable auto-refresh or press Refresh now.
         </p>
@@ -885,7 +939,10 @@ async function loadHealth({ silent = false } = {}) {
   loadError = null;
   try {
     const interval = effectiveRefreshSeconds();
-    const query = `refreshIntervalSec=${encodeURIComponent(interval)}`;
+    const query = [
+      `refreshIntervalSec=${encodeURIComponent(interval)}`,
+      `historyDays=${CHART_HISTORY_DAYS}`,
+    ].join('&');
     const response = await apiFetch(`/api/phone/health?${query}`);
     health = response;
     healthHistory = Array.isArray(response.history) ? response.history : [];

@@ -1,6 +1,8 @@
 const { getDb } = require('./database');
 
-const MAX_SAMPLES_PER_DEVICE = 500;
+const MAX_SAMPLES_PER_DEVICE = 2000;
+const DEFAULT_HISTORY_DAYS = 7;
+const DEFAULT_HISTORY_LIMIT = 500;
 
 function migrate() {
   const database = getDb();
@@ -96,12 +98,14 @@ function getLatestSample(deviceId) {
   return row ? normalizeSample(row) : null;
 }
 
-function getHealthHistory(deviceId, { limit = 120 } = {}) {
+function getHealthHistory(deviceId, { limit = DEFAULT_HISTORY_LIMIT, days = DEFAULT_HISTORY_DAYS } = {}) {
   if (!deviceId) return [];
 
   migrate();
   const database = getDb();
-  const capped = Math.min(Math.max(1, Number(limit) || 120), MAX_SAMPLES_PER_DEVICE);
+  const capped = Math.min(Math.max(1, Number(limit) || DEFAULT_HISTORY_LIMIT), MAX_SAMPLES_PER_DEVICE);
+  const dayCount = Math.min(Math.max(1, Number(days) || DEFAULT_HISTORY_DAYS), 90);
+  const since = new Date(Date.now() - dayCount * 24 * 60 * 60 * 1000).toISOString();
 
   const rows = database.prepare(`
     SELECT
@@ -120,11 +124,12 @@ function getHealthHistory(deviceId, { limit = 120 } = {}) {
         id
       FROM phone_health_samples
       WHERE device_id = ?
+        AND fetched_at >= ?
       ORDER BY fetched_at DESC, id DESC
       LIMIT ?
     )
     ORDER BY fetched_at ASC, id ASC
-  `).all(deviceId, capped);
+  `).all(deviceId, since, capped);
 
   return rows.map(normalizeSample);
 }
@@ -143,6 +148,8 @@ function clearHealthHistory(deviceId) {
 
 module.exports = {
   MAX_SAMPLES_PER_DEVICE,
+  DEFAULT_HISTORY_DAYS,
+  DEFAULT_HISTORY_LIMIT,
   recordHealthSample,
   getHealthHistory,
   clearHealthHistory,

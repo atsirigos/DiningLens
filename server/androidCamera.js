@@ -260,6 +260,16 @@ async function waitForNewPhoto(serial, before, { tries = 8, delayMs = 600 } = {}
   return null;
 }
 
+function sanitizePhoneFilename(filename) {
+  const name = String(filename || '').trim();
+  if (!name || name.includes('/') || name.includes('..')) return null;
+  return name;
+}
+
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
 async function takePhoto({ device, warmupMs = 2500, destDir = CAPTURE_DIR } = {}) {
   const targetDevice = device || getActiveDevice();
   const serial = await ensureConnectedForDevice(targetDevice);
@@ -295,14 +305,189 @@ async function takePhoto({ device, warmupMs = 2500, destDir = CAPTURE_DIR } = {}
   return { file, localPath, deviceId: targetDevice?.id || null, deviceName: targetDevice?.name || serial };
 }
 
-function sanitizePhoneFilename(filename) {
-  const name = String(filename || '').trim();
-  if (!name || name.includes('/') || name.includes('..')) return null;
-  return name;
+/** Android screenrecord hard-caps each clip at 180 seconds. */
+const SCREENRECORD_MAX_SECONDS = 180;
+const SCREENRECORD_REMOTE_DIR = '/sdcard/DiningLens';
+
+async function preparePhoneForVideo(serial, { warmupMs = 2000 } = {}) {
+  try {
+    await adbShell(serial, 'input keyevent KEYCODE_WAKEUP');
+  } catch {
+    /* ignore */
+  }
+  try {
+    await adbShell(serial, 'am start -a android.media.action.STILL_IMAGE_CAMERA');
+  } catch {
+    /* ignore — screenrecord still works without camera preview */
+  }
+  await new Promise((r) => setTimeout(r, warmupMs));
 }
 
-function shellQuote(value) {
-  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+/**
+ * Start `adb shell screenrecord` as a long-running process.
+ * Call stopScreenRecord() then pullPhoneFile() when finished.
+ */
+async function startScreenRecord({
+  device,
+  remotePath,
+  timeLimitSec = SCREENRECORD_MAX_SECONDS,
+} = {}) {
+  const targetDevice = device || getActiveDevice();
+  const serial = await ensureConnectedForDevice(targetDevice);
+  const limit = Math.max(1, Math.min(SCREENRECORD_MAX_SECONDS, Math.round(timeLimitSec)));
+  const remote = String(remotePath || '').trim();
+  if (!remote.startsWith('/')) {
+    throw new Error('Remote video path must be an absolute path on the phone.');
+  }
+
+  await adbShell(serial, `mkdir -p ${shellQuote(SCREENRECORD_REMOTE_DIR)}`);
+  try {
+    await adbShell(serial, `rm -f ${shellQuote(remote)}`);
+  } catch {
+    /* ignore */
+  }
+
+  const adbPath = getAdbPath();
+  const proc = spawn(
+    adbPath,
+    ['-s', serial, 'shell', 'screenrecord', '--time-limit', String(limit), remote],
+    { stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+
+  let stderr = '';
+  proc.stderr?.on('data', (chunk) => {
+    stderr += chunk.toString();
+  });
+
+  const exitPromise = new Promise((resolve) => {
+    proc.on('close', (code, signal) => {
+      resolve({ code, signal, stderr: stderr.trim() });
+    });
+  });
+
+  // Fail fast if screenrecord cannot start
+  await new Promise((r) => setTimeout(r, 800));
+  if (proc.exitCode != null) {
+    const result = await exitPromise;
+    throw new Error(
+      result.stderr || `screenrecord exited immediately (code ${result.code}). Is the phone screen on?`,
+    );
+  }
+
+  return {
+    serial,
+    remotePath: remote,
+    timeLimitSec: limit,
+    process: proc,
+    exitPromise,
+    deviceId: targetDevice?.id || null,
+    deviceName: targetDevice?.name || serial,
+  };
+}
+
+async function stopScreenRecord(handle) {
+  if (!handle?.serial) return { stopped: false };
+
+  // Send SIGINT (signal 2) to screenrecord so it finalizes the MP4 (writes moov).
+  // Do NOT use `pkill -l` — on Android/toybox `-l` means "list signals", not "send signal".
+  try {
+    await adbShell(
+      handle.serial,
+      'kill -2 $(pidof screenrecord) 2>/dev/null || pkill -2 screenrecord 2>/dev/null || true',
+    );
+  } catch {
+    /* ignore */
+  }
+
+  // Prefer letting the adb shell process exit on its own after screenrecord finishes.
+  // Force-killing adb mid-shutdown truncates the file (no moov atom → unplayable).
+  if (handle.exitPromise) {
+    await Promise.race([
+      handle.exitPromise,
+      new Promise((r) => setTimeout(r, 20000)),
+    ]);
+  }
+
+  // Wait until screenrecord is gone on device (moov flush)
+  for (let i = 0; i < 20; i += 1) {
+    try {
+      const out = await adbShell(handle.serial, 'pidof screenrecord 2>/dev/null || true');
+      if (!out.trim()) break;
+    } catch {
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+
+  if (handle.process && handle.process.exitCode == null && !handle.process.killed) {
+    try {
+      handle.process.kill('SIGTERM');
+    } catch {
+      /* ignore */
+    }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+
+  // Extra settle time before adb pull
+  await new Promise((r) => setTimeout(r, 1500));
+  return { stopped: true };
+}
+
+async function pullPhoneFile(serial, remotePath, localPath, { timeout = 300000 } = {}) {
+  await fs.mkdir(path.dirname(localPath), { recursive: true });
+  await adb(['-s', serial, 'pull', remotePath, localPath], { timeout });
+  return localPath;
+}
+
+/**
+ * Android screenrecord writes moov at the end. Abrupt kills leave mdat-only files
+ * that browsers cannot play. Returns true if a moov atom is present.
+ */
+async function isPlayableMp4(localPath) {
+  const fh = await fs.open(localPath, 'r');
+  try {
+    const stat = await fh.stat();
+    if (stat.size < 64) return false;
+
+    const buf = Buffer.alloc(Math.min(stat.size, 256 * 1024));
+    await fh.read(buf, 0, buf.length, 0);
+    if (buf.includes(Buffer.from('moov'))) return true;
+
+    // moov is often at the end — check the last 512KB
+    const tailLen = Math.min(stat.size, 512 * 1024);
+    const tail = Buffer.alloc(tailLen);
+    await fh.read(tail, 0, tailLen, stat.size - tailLen);
+    return tail.includes(Buffer.from('moov'));
+  } catch {
+    return false;
+  } finally {
+    await fh.close();
+  }
+}
+
+async function deletePhoneFilesByPath(serial, remotePaths) {
+  const deleted = [];
+  const failed = [];
+
+  for (const remotePath of remotePaths || []) {
+    const remote = String(remotePath || '').trim();
+    if (!remote.startsWith('/')) {
+      failed.push({ path: remote, error: 'Invalid path' });
+      continue;
+    }
+    try {
+      await adbShell(serial, `rm -f ${shellQuote(remote)}`);
+      if (await phoneFileExists(serial, remote)) {
+        failed.push({ path: remote, error: 'File still present on phone' });
+      } else {
+        deleted.push(remote);
+      }
+    } catch (err) {
+      failed.push({ path: remote, error: err.message });
+    }
+  }
+
+  return { deleted, failed };
 }
 
 function expandDcimPaths(dcimPath, filename) {
@@ -682,6 +867,8 @@ async function getDeviceHealth(serial, device = null) {
 
 module.exports = {
   CAPTURE_DIR,
+  SCREENRECORD_MAX_SECONDS,
+  SCREENRECORD_REMOTE_DIR,
   getAdbPath,
   checkAdb,
   listDevices,
@@ -699,6 +886,12 @@ module.exports = {
   ensureConnected,
   ensureConnectedForDevice,
   takePhoto,
+  preparePhoneForVideo,
+  startScreenRecord,
+  stopScreenRecord,
+  pullPhoneFile,
+  deletePhoneFilesByPath,
+  isPlayableMp4,
   deletePhonePhotos,
   closePhoneScreen,
   getDeviceHealth,

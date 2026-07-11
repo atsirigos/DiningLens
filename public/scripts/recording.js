@@ -4,6 +4,8 @@ const DEFAULT_INTERVAL_SECONDS = 30;
 const DEFAULT_MAX_MINUTES = 30;
 const POLL_INTERVAL_MS = 2500;
 const DEFAULT_PLAYBACK_FPS = 5;
+const MODE_TIMELAPSE = 'timelapse';
+const MODE_VIDEO = 'video';
 
 let status = null;
 let phoneSettings = { frameRotation: 0 };
@@ -14,6 +16,7 @@ let playbackIndex = 0;
 let playbackPlaying = false;
 let playbackTimer = null;
 let playbackFps = DEFAULT_PLAYBACK_FPS;
+let selectedMode = MODE_TIMELAPSE;
 
 function playbackFrameMs() {
   return Math.max(50, Math.round(1000 / playbackFps));
@@ -77,8 +80,9 @@ function phoneCleanupLabel() {
   if (!cleanup) return '';
 
   const parts = [];
+  const noun = status?.mode === MODE_VIDEO ? 'file' : 'photo';
   if (cleanup.deletedCount > 0) {
-    parts.push(`Removed ${cleanup.deletedCount} photo${cleanup.deletedCount === 1 ? '' : 's'} from phone`);
+    parts.push(`Removed ${cleanup.deletedCount} ${noun}${cleanup.deletedCount === 1 ? '' : 's'} from phone`);
   }
   if (cleanup.screenClosed) {
     parts.push('phone display turned off');
@@ -93,6 +97,17 @@ function phoneCleanupLabel() {
   return parts.length ? parts.join('; ') + '.' : '';
 }
 
+function currentMode() {
+  if (status?.status === 'recording' || status?.status === 'stopped' || status?.status === 'error') {
+    return status.mode || MODE_TIMELAPSE;
+  }
+  return selectedMode;
+}
+
+function isVideoMode() {
+  return currentMode() === MODE_VIDEO;
+}
+
 function progressPercent() {
   if (!status?.maxDurationMs) return 0;
   return Math.min(100, Math.round((status.elapsedMs / status.maxDurationMs) * 100));
@@ -105,10 +120,16 @@ function getFrames() {
 function getFormValues() {
   const intervalInput = document.getElementById('recording-interval');
   const maxInput = document.getElementById('recording-max-minutes');
+  const modeInput = document.querySelector('input[name="recording-mode"]:checked');
   return {
+    mode: modeInput?.value || selectedMode || MODE_TIMELAPSE,
     intervalSeconds: Number(intervalInput?.value) || DEFAULT_INTERVAL_SECONDS,
     maxMinutes: Number(maxInput?.value) || DEFAULT_MAX_MINUTES,
   };
+}
+
+function getVideos() {
+  return status?.videos || [];
 }
 
 function stopPlayback() {
@@ -227,6 +248,7 @@ function togglePlayback() {
 
 function renderConfigCard() {
   const isRecording = status?.status === 'recording';
+  const mode = currentMode();
   const intervalValue = isRecording
     ? status.intervalSeconds
     : (status?.intervalSeconds ?? DEFAULT_INTERVAL_SECONDS);
@@ -238,11 +260,43 @@ function renderConfigCard() {
     <div class="card recording-config">
       <h3 class="recording-section-title">Capture settings</h3>
       <p class="recording-section-desc">
-        Default: one photo every 30 seconds, auto-stop after 30 minutes. Frames are saved under
-        <code>data/recordings/</code> and appear in the Gallery.
+        Choose <strong>photo frames</strong> (timelapse stills) or <strong>full video</strong>
+        (phone screen recording via ADB). Files are saved under <code>data/recordings/</code>
+        and appear in the Gallery.
       </p>
+
+      <fieldset class="recording-mode-fieldset" ${isRecording ? 'disabled' : ''}>
+        <legend class="recording-mode-legend">Recording mode</legend>
+        <div class="recording-mode-options">
+          <label class="recording-mode-option">
+            <input
+              type="radio"
+              name="recording-mode"
+              value="${MODE_TIMELAPSE}"
+              ${mode === MODE_TIMELAPSE ? 'checked' : ''}
+            >
+            <span class="recording-mode-card">
+              <strong>Photo frames</strong>
+              <span>Interval still photos from the phone camera (existing timelapse).</span>
+            </span>
+          </label>
+          <label class="recording-mode-option">
+            <input
+              type="radio"
+              name="recording-mode"
+              value="${MODE_VIDEO}"
+              ${mode === MODE_VIDEO ? 'checked' : ''}
+            >
+            <span class="recording-mode-card">
+              <strong>Full video</strong>
+              <span>Continuous MP4 via ADB screenrecord (camera preview on screen). Clips auto-chain every 3 minutes.</span>
+            </span>
+          </label>
+        </div>
+      </fieldset>
+
       <div class="recording-config-grid">
-        <div class="form-group">
+        <div class="form-group" id="recording-interval-group" ${mode === MODE_VIDEO ? 'hidden' : ''}>
           <label for="recording-interval">Frequency (seconds per photo)</label>
           <input
             type="number"
@@ -250,7 +304,7 @@ function renderConfigCard() {
             min="5"
             max="600"
             step="1"
-            value="${intervalValue}"
+            value="${intervalValue ?? DEFAULT_INTERVAL_SECONDS}"
             ${isRecording ? 'disabled' : ''}
           >
         </div>
@@ -266,7 +320,7 @@ function renderConfigCard() {
             ${isRecording ? 'disabled' : ''}
           >
         </div>
-        <div class="form-group">
+        <div class="form-group" id="recording-rotation-group" ${mode === MODE_VIDEO ? 'hidden' : ''}>
           <label for="recording-frame-rotation">Camera photo rotation</label>
           <select id="recording-frame-rotation" ${isRecording ? 'disabled' : ''}>
             <option value="0" ${phoneSettings.frameRotation === 0 ? 'selected' : ''}>0° (no rotation)</option>
@@ -286,7 +340,7 @@ function renderConfigCard() {
           id="recording-start-btn"
           ${isRecording || starting ? 'disabled' : ''}
         >
-          ${starting ? 'Starting…' : 'Start recording'}
+          ${starting ? 'Starting…' : (mode === MODE_VIDEO ? 'Start video' : 'Start recording')}
         </button>
         <button
           type="button"
@@ -302,6 +356,7 @@ function renderConfigCard() {
 
 function renderStatusCard() {
   const isActive = status?.status === 'recording';
+  const video = isVideoMode();
 
   return `
     <div class="card recording-status" id="recording-status-card">
@@ -312,6 +367,10 @@ function renderStatusCard() {
 
       <div class="recording-status-grid">
         <div class="recording-stat">
+          <span class="recording-stat-label">Mode</span>
+          <span class="recording-stat-value" id="recording-mode-label">${video ? 'Full video' : 'Photo frames'}</span>
+        </div>
+        <div class="recording-stat">
           <span class="recording-stat-label">Elapsed</span>
           <span class="recording-stat-value" id="recording-elapsed">${formatDuration(status?.elapsedMs || 0)}</span>
         </div>
@@ -320,13 +379,15 @@ function renderStatusCard() {
           <span class="recording-stat-value" id="recording-remaining">${formatDuration(status?.remainingMs || 0)}</span>
         </div>
         <div class="recording-stat">
-          <span class="recording-stat-label">Frames captured</span>
-          <span class="recording-stat-value" id="recording-frames-count">${status?.framesCaptured ?? 0}</span>
+          <span class="recording-stat-label">${video ? 'Video clips' : 'Frames captured'}</span>
+          <span class="recording-stat-value" id="recording-frames-count">
+            ${video ? (status?.videoSegments ?? status?.videos?.length ?? 0) : (status?.framesCaptured ?? 0)}
+          </span>
         </div>
-        <div class="recording-stat">
+        <div class="recording-stat" id="recording-next-stat" ${video ? 'hidden' : ''}>
           <span class="recording-stat-label">Next capture in</span>
           <span class="recording-stat-value" id="recording-next-capture">
-            ${isActive && status?.nextCaptureInMs != null
+            ${!video && isActive && status?.nextCaptureInMs != null
               ? formatDuration(status.nextCaptureInMs)
               : '—'}
           </span>
@@ -362,6 +423,36 @@ function renderStatusCard() {
 }
 
 function renderPlaybackCard() {
+  if (isVideoMode()) {
+    const videos = getVideos();
+    const primary = videos[0];
+    return `
+      <div class="card recording-playback" id="recording-playback-card">
+        <div class="recording-status-header">
+          <h3 class="recording-section-title">Video playback</h3>
+          <span class="recording-playback-counter" id="recording-playback-counter">
+            ${videos.length} clip${videos.length === 1 ? '' : 's'}
+          </span>
+        </div>
+        <div class="recording-playback-viewport recording-video-viewport">
+          ${primary
+            ? `<video id="recording-video-player" class="recording-video-player" controls src="${primary.url}"></video>
+               <p class="recording-inline-note" style="margin-top:0.75rem;">
+                 <a href="${primary.url}" download="${primary.file}">Download ${primary.file}</a>
+               </p>`
+            : '<p id="recording-playback-empty" class="recording-playback-empty">No video clips yet. Recording will appear here when pulled from the phone.</p>'}
+        </div>
+        ${videos.length > 1
+          ? `<ul class="recording-video-list">${videos.map((v, i) => `
+              <li>
+                <button type="button" class="btn btn-ghost btn-sm recording-video-pick" data-video-url="${v.url}">
+                  Clip ${i + 1}: ${v.file}
+                </button>
+              </li>`).join('')}</ul>`
+          : ''}
+      </div>`;
+  }
+
   return `
     <div class="card recording-playback" id="recording-playback-card">
       <div class="recording-status-header">
@@ -406,6 +497,7 @@ function renderPlaybackCard() {
 
 function updateLiveStatus() {
   const isActive = status?.status === 'recording';
+  const video = isVideoMode();
   const prevFrameCount = Number(document.getElementById('recording-frames-count')?.textContent || 0);
 
   document.getElementById('recording-status-badge')?.classList.remove('badge-success', 'badge-muted', 'badge-danger');
@@ -415,6 +507,9 @@ function updateLiveStatus() {
     badge.textContent = statusLabel();
   }
 
+  const modeLabel = document.getElementById('recording-mode-label');
+  if (modeLabel) modeLabel.textContent = video ? 'Full video' : 'Photo frames';
+
   const elapsed = document.getElementById('recording-elapsed');
   if (elapsed) elapsed.textContent = formatDuration(status?.elapsedMs || 0);
 
@@ -422,11 +517,20 @@ function updateLiveStatus() {
   if (remaining) remaining.textContent = formatDuration(status?.remainingMs || 0);
 
   const framesCount = document.getElementById('recording-frames-count');
-  if (framesCount) framesCount.textContent = String(status?.framesCaptured ?? 0);
+  if (framesCount) {
+    framesCount.textContent = String(
+      video
+        ? (status?.videoSegments ?? status?.videos?.length ?? 0)
+        : (status?.framesCaptured ?? 0),
+    );
+  }
+
+  const nextStat = document.getElementById('recording-next-stat');
+  if (nextStat) nextStat.hidden = video;
 
   const nextCapture = document.getElementById('recording-next-capture');
   if (nextCapture) {
-    nextCapture.textContent = isActive && status?.nextCaptureInMs != null
+    nextCapture.textContent = !video && isActive && status?.nextCaptureInMs != null
       ? formatDuration(status.nextCaptureInMs)
       : '—';
   }
@@ -461,6 +565,17 @@ function updateLiveStatus() {
     phoneCleanup.textContent = status?.phoneCleanup ? phoneCleanupLabel() : '';
   }
 
+  if (video) {
+    const counter = document.getElementById('recording-playback-counter');
+    const videos = getVideos();
+    if (counter) counter.textContent = `${videos.length} clip${videos.length === 1 ? '' : 's'}`;
+    const player = document.getElementById('recording-video-player');
+    if (player && videos.length && !player.src.includes(videos[videos.length - 1].file)) {
+      // Keep current clip unless empty
+    }
+    return;
+  }
+
   const newFrameCount = status?.framesCaptured ?? 0;
   if (newFrameCount > prevFrameCount && playbackPlaying) {
     advancePlayback();
@@ -477,7 +592,8 @@ function render() {
         <p>
           <strong>Server-side recording.</strong> The capture loop runs on this machine, so it
           continues even if you close this tab. Make sure your phone is connected in
-          Phone Configuration first.
+          Phone Configuration first. Full video records the phone screen (open the camera
+          preview for the best meal view).
         </p>
       </div>
       ${renderConfigCard()}
@@ -486,9 +602,11 @@ function render() {
     </div>`;
 
   bindEvents();
-  showPlaybackFrame();
-  syncPlaybackControls();
-  if (playbackPlaying) startPlayback();
+  if (!isVideoMode()) {
+    showPlaybackFrame();
+    syncPlaybackControls();
+    if (playbackPlaying) startPlayback();
+  }
 }
 
 function stopPolling() {
@@ -516,18 +634,36 @@ function startPolling() {
 
 async function loadStatus() {
   status = await apiFetch('/api/recording/status');
+  if (status.mode) selectedMode = status.mode === MODE_VIDEO ? MODE_VIDEO : MODE_TIMELAPSE;
   if (status.status === 'recording') {
     startPolling();
   }
 }
 
 function bindEvents() {
-  document.getElementById('recording-start-btn')?.addEventListener('click', async () => {
-    const { intervalSeconds, maxMinutes } = getFormValues();
+  document.querySelectorAll('input[name="recording-mode"]').forEach((input) => {
+    input.addEventListener('change', (e) => {
+      selectedMode = e.target.value === MODE_VIDEO ? MODE_VIDEO : MODE_TIMELAPSE;
+      const intervalGroup = document.getElementById('recording-interval-group');
+      const rotationGroup = document.getElementById('recording-rotation-group');
+      if (intervalGroup) intervalGroup.hidden = selectedMode === MODE_VIDEO;
+      if (rotationGroup) rotationGroup.hidden = selectedMode === MODE_VIDEO;
+      const startBtn = document.getElementById('recording-start-btn');
+      if (startBtn && !starting) {
+        startBtn.textContent = selectedMode === MODE_VIDEO ? 'Start video' : 'Start recording';
+      }
+    });
+  });
 
-    if (intervalSeconds < 5 || intervalSeconds > 600) {
-      showToast('Frequency must be between 5 and 600 seconds.', 'error');
-      return;
+  document.getElementById('recording-start-btn')?.addEventListener('click', async () => {
+    const { mode, intervalSeconds, maxMinutes } = getFormValues();
+    selectedMode = mode === MODE_VIDEO ? MODE_VIDEO : MODE_TIMELAPSE;
+
+    if (selectedMode === MODE_TIMELAPSE) {
+      if (intervalSeconds < 5 || intervalSeconds > 600) {
+        showToast('Frequency must be between 5 and 600 seconds.', 'error');
+        return;
+      }
     }
     if (maxMinutes < 1 || maxMinutes > 240) {
       showToast('Max recording length must be between 1 and 240 minutes.', 'error');
@@ -540,11 +676,13 @@ function bindEvents() {
     try {
       stopPlayback();
       playbackIndex = 0;
+      const body = { mode: selectedMode, maxMinutes };
+      if (selectedMode === MODE_TIMELAPSE) body.intervalSeconds = intervalSeconds;
       status = await apiFetch('/api/recording/start', {
         method: 'POST',
-        body: JSON.stringify({ intervalSeconds, maxMinutes }),
+        body: JSON.stringify(body),
       });
-      showToast('Recording started', 'success');
+      showToast(selectedMode === MODE_VIDEO ? 'Video recording started' : 'Recording started', 'success');
       startPolling();
     } catch (err) {
       showToast(err.message, 'error');
@@ -570,6 +708,16 @@ function bindEvents() {
       stopping = false;
       render();
     }
+  });
+
+  document.querySelectorAll('.recording-video-pick').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const player = document.getElementById('recording-video-player');
+      if (player && btn.dataset.videoUrl) {
+        player.src = btn.dataset.videoUrl;
+        player.play?.();
+      }
+    });
   });
 
   document.getElementById('recording-playpause-btn')?.addEventListener('click', togglePlayback);

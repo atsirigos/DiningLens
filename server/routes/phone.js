@@ -18,6 +18,8 @@ const {
   recordHealthSample,
   getHealthHistory,
   clearHealthHistory,
+  DEFAULT_HISTORY_DAYS,
+  DEFAULT_HISTORY_LIMIT,
 } = require('../db/phoneHealthStore');
 const {
   normalizeChargeControl,
@@ -234,8 +236,17 @@ router.get('/phone/health', async (req, res) => {
       }
     }
 
-    const history = getHealthHistory(activeDevice.id);
-    res.json({ ...health, history, chargeControl });
+    const historyDays = Number(req.query.historyDays);
+    const history = getHealthHistory(activeDevice.id, {
+      days: Number.isFinite(historyDays) ? historyDays : DEFAULT_HISTORY_DAYS,
+      limit: DEFAULT_HISTORY_LIMIT,
+    });
+    res.json({
+      ...health,
+      history,
+      chargeControl,
+      historyDays: Number.isFinite(historyDays) ? historyDays : DEFAULT_HISTORY_DAYS,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to read phone health' });
   }
@@ -249,10 +260,16 @@ router.get('/phone/history', (req, res) => {
     }
 
     const limit = Number(req.query.limit);
+    const days = Number(req.query.days);
     const history = getHealthHistory(activeDevice.id, {
-      limit: Number.isFinite(limit) ? limit : 120,
+      limit: Number.isFinite(limit) ? limit : DEFAULT_HISTORY_LIMIT,
+      days: Number.isFinite(days) ? days : DEFAULT_HISTORY_DAYS,
     });
-    res.json({ deviceId: activeDevice.id, history });
+    res.json({
+      deviceId: activeDevice.id,
+      history,
+      days: Number.isFinite(days) ? days : DEFAULT_HISTORY_DAYS,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to read phone history' });
   }

@@ -6,6 +6,10 @@ import {
 } from './mealResults.js';
 import { mountZoneOverlay, highlightZoneOverlay } from './zoneOverlay.js';
 
+function fileApiUrl(relativePath) {
+  return `/api/file/${String(relativePath || '').split('/').map(encodeURIComponent).join('/')}`;
+}
+
 let allFiles = [];
 let filteredFiles = [];
 let results = {};
@@ -57,7 +61,7 @@ function renderRecordingFrameList(frames, activeIndex = 0) {
         return `
           <div class="recording-frame-item${i === activeIndex ? ' is-active' : ''}" data-frame-index="${i}">
             <button type="button" class="recording-frame-thumb-btn" aria-label="Show frame ${i + 1}">
-              <img src="/api/file/${encodeURIComponent(frame.path)}" alt="" loading="lazy">
+              <img src="${fileApiUrl(frame.path)}" alt="" loading="lazy">
             </button>
             <div class="recording-frame-item-body">
               <div class="recording-frame-item-header">
@@ -168,7 +172,7 @@ function updateRecordingCardInPlace(recordingPath) {
   const thumb = card.querySelector('.gallery-recording-thumb img');
   const firstFrame = entry.frames[0];
   if (thumb && firstFrame) {
-    thumb.src = `/api/file/${encodeURIComponent(firstFrame.path)}`;
+    thumb.src = `${fileApiUrl(firstFrame.path)}`;
     thumb.alt = entry.name;
   }
 
@@ -318,29 +322,50 @@ export function groupFiles(files) {
 
   for (const f of files) {
     const parts = (f.path || f.name).split('/');
-    if (parts[0] === 'recordings' && parts.length >= 3 && f.type === 'image') {
+    if (parts[0] === 'recordings' && parts.length >= 3 && (f.type === 'image' || f.type === 'video')) {
       const session = parts[1];
-      if (!sessions.has(session)) sessions.set(session, []);
-      sessions.get(session).push(f);
+      if (!sessions.has(session)) sessions.set(session, { images: [], videos: [] });
+      if (f.type === 'video') sessions.get(session).videos.push(f);
+      else sessions.get(session).images.push(f);
     } else {
       others.push(f);
     }
   }
 
   const recordingEntries = [];
-  for (const [session, frames] of sessions) {
-    frames.sort((a, b) => new Date(a.modified) - new Date(b.modified) || a.name.localeCompare(b.name));
-    const totalSize = frames.reduce((sum, fr) => sum + (fr.size || 0), 0);
-    recordingEntries.push({
-      type: 'recording',
-      session,
-      name: `Recording ${session}`,
-      path: `recordings/${session}`,
-      frames,
-      frameCount: frames.length,
-      size: totalSize,
-      modified: frames[frames.length - 1]?.modified || new Date().toISOString(),
-    });
+  for (const [session, { images, videos }] of sessions) {
+    images.sort((a, b) => new Date(a.modified) - new Date(b.modified) || a.name.localeCompare(b.name));
+    videos.sort((a, b) => new Date(a.modified) - new Date(b.modified) || a.name.localeCompare(b.name));
+
+    if (images.length) {
+      const totalSize = images.reduce((sum, fr) => sum + (fr.size || 0), 0);
+      recordingEntries.push({
+        type: 'recording',
+        mode: 'timelapse',
+        session,
+        name: `Recording ${session}`,
+        path: `recordings/${session}`,
+        frames: images,
+        frameCount: images.length,
+        videos,
+        size: totalSize,
+        modified: images[images.length - 1]?.modified || new Date().toISOString(),
+      });
+    } else if (videos.length) {
+      const totalSize = videos.reduce((sum, v) => sum + (v.size || 0), 0);
+      recordingEntries.push({
+        type: 'recording',
+        mode: 'video',
+        session,
+        name: `Video ${session}`,
+        path: `recordings/${session}`,
+        frames: [],
+        frameCount: 0,
+        videos,
+        size: totalSize,
+        modified: videos[videos.length - 1]?.modified || new Date().toISOString(),
+      });
+    }
   }
 
   return [...recordingEntries, ...others]
@@ -389,24 +414,28 @@ function renderGrid() {
 
   grid.innerHTML = filteredFiles.map((file, idx) => {
     if (file.type === 'recording') {
-      const thumbSrc = file.frames[0]
-        ? `/api/file/${encodeURIComponent(file.frames[0].path)}`
+      const isVideoRec = file.mode === 'video' || (!file.frames?.length && file.videos?.length);
+      const thumbSrc = file.frames?.[0]
+        ? `${fileApiUrl(file.frames[0].path)}`
         : '';
+      const badge = isVideoRec
+        ? `🎥 ${file.videos.length} clip${file.videos.length === 1 ? '' : 's'}`
+        : `🎬 ${file.frameCount} frame${file.frameCount === 1 ? '' : 's'}`;
       return `
         <div class="card gallery-card" data-index="${idx}" data-item-path="${escapeAttr(file.path)}" tabindex="0" role="button" aria-label="Play ${file.name}">
           <div class="gallery-card-actions">
             ${renderCardDeleteButton(file.path, file.name)}
           </div>
           <div class="gallery-card-thumb gallery-recording-thumb">
-            ${thumbSrc ? `<img src="${thumbSrc}" alt="${file.name}" loading="lazy">` : ''}
+            ${thumbSrc ? `<img src="${thumbSrc}" alt="${file.name}" loading="lazy">` : '<div class="gallery-video-placeholder" aria-hidden="true">🎥</div>'}
             <span class="gallery-recording-play" aria-hidden="true">▶</span>
-            <span class="gallery-recording-badge">🎬 ${file.frameCount} frame${file.frameCount === 1 ? '' : 's'}</span>
+            <span class="gallery-recording-badge">${badge}</span>
           </div>
           <div class="gallery-card-body">
             <div class="gallery-card-name" title="${file.name}">${file.name}</div>
             <div class="gallery-card-meta">
               <span>${formatBytes(file.size)}</span>
-              <span class="badge badge-muted">Recording</span>
+              <span class="badge badge-muted">${isVideoRec ? 'Video' : 'Recording'}</span>
             </div>
           </div>
         </div>`;
@@ -414,7 +443,7 @@ function renderGrid() {
 
     const isProcessed = !!results[file.name];
     const thumbSrc = file.type === 'image'
-      ? `/api/file/${encodeURIComponent(file.path || file.name)}`
+      ? `${fileApiUrl(file.path || file.name)}`
       : '';
 
     return `
@@ -477,7 +506,7 @@ async function rotateGalleryImage(file, degrees, { lightbox = null, cardElement 
       }
     }
 
-    const cacheBustedSrc = `/api/file/${encodeURIComponent(filePath)}?t=${Date.now()}`;
+    const cacheBustedSrc = `${fileApiUrl(filePath)}?t=${Date.now()}`;
 
     const lightboxImg = lightbox?.querySelector('.lightbox-photo-host img, .rp-frame');
     if (lightboxImg) {
@@ -605,7 +634,7 @@ function openLightbox(index) {
 
   removeExistingLightbox();
 
-  const src = `/api/file/${encodeURIComponent(file.path || file.name)}`;
+  const src = `${fileApiUrl(file.path || file.name)}`;
   const media = file.type === 'video'
     ? `<video src="${src}" controls autoplay></video>`
     : `<div class="zone-photo-host lightbox-photo-host">
@@ -672,10 +701,100 @@ function openLightbox(index) {
   document.addEventListener('keydown', handleLightboxKey);
 }
 
+function openVideoRecordingLightbox(index) {
+  lightboxIndex = index;
+  const file = filteredFiles[index];
+  const videos = file?.videos || [];
+  if (!videos.length) return;
+
+  removeExistingLightbox();
+
+  let clipIndex = 0;
+  const lb = document.createElement('div');
+  lb.className = 'lightbox';
+  lb.dataset.filename = file.name;
+  lb.dataset.filepath = file.path || file.name;
+  lb.innerHTML = `
+    <div class="lightbox-content">
+      <button class="btn btn-ghost lightbox-close" aria-label="Close">✕</button>
+      ${filteredFiles.length > 1 ? `
+        <button class="btn btn-ghost lightbox-nav prev" aria-label="Previous">←</button>
+        <button class="btn btn-ghost lightbox-nav next" aria-label="Next">→</button>
+      ` : ''}
+      <div class="recording-player">
+        <div class="recording-playback-viewport recording-lightbox-viewport">
+          <video class="recording-video-player rp-video" controls autoplay src="${fileApiUrl(videos[0].path)}"></video>
+        </div>
+        <div class="recording-playback-controls">
+          <button type="button" class="btn btn-ghost btn-sm rp-prev" ${videos.length < 2 ? 'disabled' : ''}>‹ Prev clip</button>
+          <span class="recording-playback-counter rp-counter">1 / ${videos.length}</span>
+          <button type="button" class="btn btn-ghost btn-sm rp-next" ${videos.length < 2 ? 'disabled' : ''}>Next clip ›</button>
+        </div>
+      </div>
+    </div>
+    <aside class="lightbox-sidebar glass">
+      <div class="lightbox-sidebar-header">
+        <h3>${file.name}</h3>
+        <p class="lightbox-file-meta">${videos.length} video clip${videos.length === 1 ? '' : 's'} · ${formatBytes(file.size)} · ${formatDate(file.modified)}</p>
+        <div class="lightbox-trash-actions">
+          <a class="btn btn-ghost btn-sm" href="${fileApiUrl(videos[0].path)}" download="${videos[0].name}">Download clip</a>
+          <button type="button" class="btn btn-danger btn-sm lightbox-trash-recording-btn" data-trash-path="${file.path}" data-trash-label="${file.name.replace(/"/g, '&quot;')}">Delete entire recording</button>
+        </div>
+      </div>
+      <div class="lightbox-analysis">
+        <h4>Clips</h4>
+        <ul class="recording-video-list">
+          ${videos.map((v, i) => `
+            <li>
+              <button type="button" class="btn btn-ghost btn-sm recording-video-pick" data-clip-index="${i}">
+                Clip ${i + 1}: ${v.name}
+              </button>
+            </li>`).join('')}
+        </ul>
+      </div>
+    </aside>`;
+
+  document.body.appendChild(lb);
+
+  const videoEl = lb.querySelector('.rp-video');
+  const counter = lb.querySelector('.rp-counter');
+
+  function showClip(i) {
+    clipIndex = Math.max(0, Math.min(i, videos.length - 1));
+    videoEl.src = `${fileApiUrl(videos[clipIndex].path)}`;
+    counter.textContent = `${clipIndex + 1} / ${videos.length}`;
+    videoEl.play?.();
+  }
+
+  lb.querySelector('.rp-prev')?.addEventListener('click', () => showClip(clipIndex - 1));
+  lb.querySelector('.rp-next')?.addEventListener('click', () => showClip(clipIndex + 1));
+  lb.querySelectorAll('.recording-video-pick').forEach((btn) => {
+    btn.addEventListener('click', () => showClip(Number(btn.dataset.clipIndex) || 0));
+  });
+
+  lb.querySelector('.lightbox-trash-recording-btn')?.addEventListener('click', () => {
+    trashItem(file.path, file.name);
+  });
+
+  lb.querySelector('.lightbox-close').addEventListener('click', closeLightbox);
+  lb.querySelector('.lightbox-nav.prev')?.addEventListener('click', () => navigateLightbox(-1));
+  lb.querySelector('.lightbox-nav.next')?.addEventListener('click', () => navigateLightbox(1));
+  lb.addEventListener('click', (e) => { if (e.target === lb) closeLightbox(); });
+  document.addEventListener('keydown', handleLightboxKey);
+}
+
 function openRecordingLightbox(index) {
   lightboxIndex = index;
   const file = filteredFiles[index];
-  if (!file?.frames?.length) return;
+  if (!file) return;
+
+  const isVideoRec = file.mode === 'video' || (!file.frames?.length && file.videos?.length);
+  if (isVideoRec) {
+    openVideoRecordingLightbox(index);
+    return;
+  }
+
+  if (!file.frames?.length) return;
 
   removeExistingLightbox();
 
@@ -750,7 +869,7 @@ function openRecordingLightbox(index) {
 
   function showFrame() {
     frameIndex = Math.max(0, Math.min(frameIndex, frames.length - 1));
-    img.src = `/api/file/${encodeURIComponent(frames[frameIndex].path)}`;
+    img.src = `${fileApiUrl(frames[frameIndex].path)}`;
     img.alt = `Frame ${frameIndex + 1}: ${frames[frameIndex].name}`;
     counter.textContent = `${frameIndex + 1} / ${frames.length}`;
     scrubber.value = String(frameIndex);

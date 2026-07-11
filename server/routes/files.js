@@ -19,7 +19,11 @@ const MIME_TYPES = {
 };
 
 function resolveSafePath(filename) {
-  const decoded = decodeURIComponent(filename);
+  let raw = filename;
+  if (Array.isArray(raw)) {
+    raw = raw.map(String).join('/');
+  }
+  const decoded = decodeURIComponent(String(raw || ''));
   const resolved = path.resolve(DATA_DIR, decoded);
   const normalizedData = path.resolve(DATA_DIR);
 
@@ -118,7 +122,12 @@ router.get('/file/*filepath', (req, res) => {
   const mime = MIME_TYPES[ext] || 'application/octet-stream';
 
   res.setHeader('Content-Type', mime);
-  res.sendFile(filePath);
+  // Range support is required for MP4s with moov-at-end (screenrecord output)
+  res.sendFile(filePath, { acceptRanges: true }, (err) => {
+    if (err && !res.headersSent) {
+      res.status(err.statusCode || 500).json({ error: err.message || 'Failed to send file' });
+    }
+  });
 });
 
 module.exports = router;

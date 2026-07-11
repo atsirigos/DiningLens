@@ -184,6 +184,56 @@
       margin-bottom: 1.25rem;
     }
 
+    .mode-options {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .mode-option {
+      display: block;
+      cursor: pointer;
+    }
+
+    .mode-option input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .mode-card {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      padding: 0.85rem 1rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.7);
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .mode-card strong { font-size: 0.95rem; }
+    .mode-card span { font-size: 0.8rem; color: var(--muted); line-height: 1.35; }
+
+    .mode-option input:checked + .mode-card {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(107, 92, 231, 0.18);
+    }
+
+    .mode-options.is-disabled {
+      opacity: 0.55;
+      pointer-events: none;
+    }
+
+    .summary-video {
+      width: 100%;
+      max-height: 280px;
+      margin-top: 1rem;
+      border-radius: var(--radius-sm);
+      background: #0f172a;
+    }
+
     label {
       display: block;
       font-size: 0.85rem;
@@ -429,7 +479,7 @@
     <header>
       <div>
         <h1>Start Recording</h1>
-        <p>Scheduled photo capture from your connected phone</p>
+        <p>Photo frames or full video from your connected phone</p>
       </div>
       <div class="header-actions">
         <span id="server-pill" class="pill pill--waiting">
@@ -450,11 +500,29 @@
     <section class="glass card" id="recording-card">
       <h2 class="card-title">Recording</h2>
       <p class="card-desc">
-        Photos are saved to <code>data/recordings/</code> on this machine. The capture loop runs server-side and continues if you close this tab.
+        Choose photo frames (timelapse) or full video (ADB screenrecord). Files save to
+        <code>data/recordings/</code>. Capture runs server-side and continues if you close this tab.
       </p>
 
+      <div class="mode-options" id="mode-options">
+        <label class="mode-option">
+          <input type="radio" name="recording-mode" value="timelapse" checked>
+          <span class="mode-card">
+            <strong>Photo frames</strong>
+            <span>Interval still photos from the phone camera.</span>
+          </span>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="recording-mode" value="video">
+          <span class="mode-card">
+            <strong>Full video</strong>
+            <span>Continuous MP4 via screenrecord (clips chain every 3 min).</span>
+          </span>
+        </label>
+      </div>
+
       <div class="config-grid">
-        <div>
+        <div id="interval-wrap">
           <label for="interval-input">Frequency (seconds per photo)</label>
           <input type="number" id="interval-input" min="5" max="600" value="30">
         </div>
@@ -476,6 +544,10 @@
         </div>
         <div class="stat-grid">
           <div class="stat">
+            <span class="stat-label">Mode</span>
+            <span class="stat-value" id="stat-mode">Photo frames</span>
+          </div>
+          <div class="stat">
             <span class="stat-label">Elapsed</span>
             <span class="stat-value" id="stat-elapsed">00:00</span>
           </div>
@@ -484,10 +556,10 @@
             <span class="stat-value" id="stat-remaining">—</span>
           </div>
           <div class="stat">
-            <span class="stat-label">Frames</span>
+            <span class="stat-label" id="stat-count-label">Frames</span>
             <span class="stat-value" id="stat-frames">0</span>
           </div>
-          <div class="stat">
+          <div class="stat" id="stat-next-wrap">
             <span class="stat-label">Next capture</span>
             <span class="stat-value" id="stat-next">—</span>
           </div>
@@ -512,6 +584,7 @@
         </div>
         <div class="stat-grid" id="summary-stats"></div>
         <div class="thumb-strip" id="thumb-strip"></div>
+        <div id="summary-video-wrap"></div>
       </div>
     </section>
   </div>
@@ -524,6 +597,8 @@
     const RECORDING_POLL_MS = 2500;
     const HEALTH_POLL_MS = 5000;
     const SERVER_WAIT_MS = 2000;
+    const MODE_TIMELAPSE = 'timelapse';
+    const MODE_VIDEO = 'video';
 
     const BATTERY_THRESHOLDS = {
       safeMin: 20, safeMax: 80,
@@ -778,9 +853,10 @@
 
     function phoneCleanupLabel(cleanup) {
       if (!cleanup) return '—';
+      const noun = status?.mode === MODE_VIDEO ? 'file' : 'photo';
       const parts = [];
       if (cleanup.deletedCount > 0) {
-        parts.push(`Removed ${cleanup.deletedCount} photo${cleanup.deletedCount === 1 ? '' : 's'} from phone`);
+        parts.push(`Removed ${cleanup.deletedCount} ${noun}${cleanup.deletedCount === 1 ? '' : 's'} from phone`);
       }
       if (cleanup.screenClosed) parts.push('display turned off');
       if (cleanup.failed?.length) {
@@ -788,6 +864,27 @@
       }
       if (cleanup.error) parts.push(`cleanup error: ${cleanup.error}`);
       return parts.length ? parts.join('; ') : 'No cleanup needed';
+    }
+
+    function selectedMode() {
+      return document.querySelector('input[name="recording-mode"]:checked')?.value || MODE_TIMELAPSE;
+    }
+
+    function isVideoMode() {
+      if (status?.status === 'recording' || status?.status === 'stopped' || status?.status === 'error') {
+        return status.mode === MODE_VIDEO;
+      }
+      return selectedMode() === MODE_VIDEO;
+    }
+
+    function syncModeUi() {
+      const video = selectedMode() === MODE_VIDEO;
+      const intervalWrap = document.getElementById('interval-wrap');
+      if (intervalWrap) intervalWrap.hidden = video;
+      const startBtn = document.getElementById('start-btn');
+      if (startBtn && !starting) {
+        startBtn.textContent = video ? 'Start video' : 'Start recording';
+      }
     }
 
     function outcomeBadge(statusValue, stopReason) {
@@ -820,13 +917,18 @@
         ? Date.parse(status.stoppedAt) - Date.parse(status.startedAt)
         : status.elapsedMs || 0;
 
+      const isVideo = status.mode === MODE_VIDEO;
       statsEl.innerHTML = [
         renderStat('Session', status.sessionId || '—'),
+        renderStat('Mode', isVideo ? 'Full video' : 'Photo frames'),
         renderStat('Device', status.deviceName || '—'),
         renderStat('Started', formatDateTime(status.startedAt)),
         renderStat('Stopped', formatDateTime(status.stoppedAt)),
         renderStat('Duration', formatDuration(durationMs)),
-        renderStat('Frames captured', String(status.framesCaptured ?? 0)),
+        renderStat(
+          isVideo ? 'Video clips' : 'Frames captured',
+          String(isVideo ? (status.videoSegments ?? status.videos?.length ?? 0) : (status.framesCaptured ?? 0)),
+        ),
         renderStat('Stop reason', stopReasonLabel(status.stopReason)),
         renderStat('Failures', String(status.errors?.length ?? 0)),
         renderStat('Consecutive failures', String(status.consecutiveFailures ?? 0)),
@@ -838,10 +940,21 @@
         renderStat('Phone cleanup', phoneCleanupLabel(status.phoneCleanup)),
       ].join('');
 
-      const frames = status.frames || [];
-      thumbEl.innerHTML = frames.length
-        ? frames.map((f) => `<img src="${escapeHtml(f.url)}" alt="${escapeHtml(f.file)}" title="${escapeHtml(f.file)}">`).join('')
-        : '<p class="inline-note">No frames captured.</p>';
+      const videoWrap = document.getElementById('summary-video-wrap');
+      if (isVideo) {
+        thumbEl.innerHTML = '';
+        const videos = status.videos || [];
+        videoWrap.innerHTML = videos.length
+          ? `<video class="summary-video" controls src="${escapeHtml(videos[0].url)}"></video>
+             ${videos.length > 1 ? `<p class="inline-note">${videos.length} clips saved (showing first).</p>` : ''}`
+          : '<p class="inline-note">No video clips captured.</p>';
+      } else {
+        videoWrap.innerHTML = '';
+        const frames = status.frames || [];
+        thumbEl.innerHTML = frames.length
+          ? frames.map((f) => `<img src="${escapeHtml(f.url)}" alt="${escapeHtml(f.file)}" title="${escapeHtml(f.file)}">`).join('')
+          : '<p class="inline-note">No frames captured.</p>';
+      }
     }
 
     function updateLivePanel() {
@@ -874,12 +987,21 @@
         badge.className = 'badge badge-stopped';
       }
 
+      document.getElementById('stat-mode').textContent = isVideoMode() ? 'Full video' : 'Photo frames';
       document.getElementById('stat-elapsed').textContent = formatDuration(status?.elapsedMs || 0);
       document.getElementById('stat-remaining').textContent = isRecording
         ? formatDuration(status?.remainingMs || 0)
         : '—';
-      document.getElementById('stat-frames').textContent = String(status?.framesCaptured ?? 0);
-      document.getElementById('stat-next').textContent = isRecording && status?.nextCaptureInMs != null
+      const countLabel = document.getElementById('stat-count-label');
+      if (countLabel) countLabel.textContent = isVideoMode() ? 'Video clips' : 'Frames';
+      document.getElementById('stat-frames').textContent = String(
+        isVideoMode()
+          ? (status?.videoSegments ?? status?.videos?.length ?? 0)
+          : (status?.framesCaptured ?? 0),
+      );
+      const nextWrap = document.getElementById('stat-next-wrap');
+      if (nextWrap) nextWrap.hidden = isVideoMode();
+      document.getElementById('stat-next').textContent = !isVideoMode() && isRecording && status?.nextCaptureInMs != null
         ? formatDuration(status.nextCaptureInMs)
         : '—';
 
@@ -913,14 +1035,23 @@
       const maxInput = document.getElementById('max-input');
       const startBtn = document.getElementById('start-btn');
       const stopBtn = document.getElementById('stop-btn');
+      const modeOptions = document.getElementById('mode-options');
 
+      if (modeOptions) modeOptions.classList.toggle('is-disabled', isRecording || starting);
+      document.querySelectorAll('input[name="recording-mode"]').forEach((el) => {
+        el.disabled = isRecording || starting;
+      });
       intervalInput.disabled = isRecording || starting;
       maxInput.disabled = isRecording || starting;
       startBtn.disabled = isRecording || starting || stopping || !isPhoneReady();
       stopBtn.disabled = !isRecording || stopping;
 
-      startBtn.textContent = starting ? 'Starting…' : 'Start recording';
+      const video = isVideoMode();
+      startBtn.textContent = starting
+        ? 'Starting…'
+        : (video ? 'Start video' : 'Start recording');
       stopBtn.textContent = stopping ? 'Stopping…' : 'Stop recording';
+      syncModeUi();
     }
 
     function syncStartButton() {
@@ -929,6 +1060,7 @@
 
     function getFormValues() {
       return {
+        mode: selectedMode(),
         intervalSeconds: Number(document.getElementById('interval-input').value) || DEFAULT_INTERVAL,
         maxMinutes: Number(document.getElementById('max-input').value) || DEFAULT_MAX_MINUTES,
       };
@@ -966,6 +1098,11 @@
 
     async function loadRecordingStatus() {
       status = await apiFetch('/api/recording/status');
+      if (status.mode === MODE_VIDEO || status.mode === MODE_TIMELAPSE) {
+        const radio = document.querySelector(`input[name="recording-mode"][value="${status.mode}"]`);
+        if (radio) radio.checked = true;
+        syncModeUi();
+      }
       if (status.status === 'recording') {
         document.getElementById('live-panel').hidden = false;
         startRecordingPoll();
@@ -976,10 +1113,14 @@
       updateLivePanel();
     }
 
-    document.getElementById('start-btn').addEventListener('click', async () => {
-      const { intervalSeconds, maxMinutes } = getFormValues();
+    document.querySelectorAll('input[name="recording-mode"]').forEach((input) => {
+      input.addEventListener('change', syncModeUi);
+    });
 
-      if (intervalSeconds < 5 || intervalSeconds > 600) {
+    document.getElementById('start-btn').addEventListener('click', async () => {
+      const { mode, intervalSeconds, maxMinutes } = getFormValues();
+
+      if (mode === MODE_TIMELAPSE && (intervalSeconds < 5 || intervalSeconds > 600)) {
         showToast('Frequency must be between 5 and 600 seconds.', 'error');
         return;
       }
@@ -1005,11 +1146,13 @@
           /* use last polled health */
         }
 
+        const body = { mode, maxMinutes };
+        if (mode === MODE_TIMELAPSE) body.intervalSeconds = intervalSeconds;
         status = await apiFetch('/api/recording/start', {
           method: 'POST',
-          body: JSON.stringify({ intervalSeconds, maxMinutes }),
+          body: JSON.stringify(body),
         });
-        showToast('Recording started', 'success');
+        showToast(mode === MODE_VIDEO ? 'Video recording started' : 'Recording started', 'success');
         startRecordingPoll();
         updateLivePanel();
       } catch (err) {
