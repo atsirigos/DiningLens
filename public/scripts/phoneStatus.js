@@ -19,6 +19,7 @@ const HEALTH_LEVEL_COLORS = {
 const CHART_TEXT = '#475569';
 const CHART_GRID = 'rgba(0, 0, 0, 0.06)';
 const CHART_HISTORY_DAYS = 7;
+const CHART_VIEW_WINDOW_SEC = 6 * 60 * 60;
 const DAY_SEC = 24 * 60 * 60;
 const HOUR_SEC = 60 * 60;
 
@@ -59,12 +60,23 @@ let refreshConfig = loadRefreshConfig();
 let refreshing = false;
 let healthHistory = [];
 let statusCharts = {};
+/** When true, the visible window tracks the latest sample. */
+let chartFollowLatest = true;
+/** Absolute end of the visible window (ms); used when not following latest. */
+let chartViewEndMs = null;
+let chartPanState = null;
 
 const container = () => document.getElementById('phone-status-content');
 
 function destroyStatusCharts() {
   Object.values(statusCharts).forEach((chart) => chart.destroy());
   statusCharts = {};
+  chartPanState = null;
+}
+
+function resetChartView() {
+  chartFollowLatest = true;
+  chartViewEndMs = null;
 }
 
 function chartIntervalSeconds() {
@@ -91,21 +103,67 @@ function chartIntervalSeconds() {
   return Math.max(1, Math.round(deltas[Math.floor(deltas.length / 2)]));
 }
 
-function chartTimeSpanSeconds() {
+function dataSpanSeconds() {
   if (healthHistory.length < 2) return chartIntervalSeconds();
   const t0 = Date.parse(healthHistory[0].t);
   const t1 = Date.parse(healthHistory[healthHistory.length - 1].t);
   return Math.max(chartIntervalSeconds(), Math.round((t1 - t0) / 1000));
 }
 
-function chartAxisStepSeconds(spanSec) {
-  if (spanSec >= DAY_SEC * 3) return DAY_SEC;
-  if (spanSec >= DAY_SEC) return HOUR_SEC * 6;
-  if (spanSec >= HOUR_SEC * 6) return HOUR_SEC;
-  if (spanSec >= HOUR_SEC) return 15 * 60;
-  if (spanSec >= 15 * 60) return 5 * 60;
+function chartViewWindowSeconds() {
+  return Math.min(CHART_VIEW_WINDOW_SEC, dataSpanSeconds());
+}
+
+function chartCanScroll() {
+  return dataSpanSeconds() > chartViewWindowSeconds() + 1;
+}
+
+function chartViewBounds() {
+  const span = dataSpanSeconds();
+  const windowSec = chartViewWindowSeconds();
+  let endSec;
+
+  if (chartFollowLatest || chartViewEndMs == null) {
+    endSec = span;
+  } else {
+    endSec = Math.round((chartViewEndMs - historyStartMs()) / 1000);
+    endSec = Math.min(span, Math.max(windowSec, endSec));
+  }
+
+  let startSec = endSec - windowSec;
+  if (startSec < 0) {
+    startSec = 0;
+    endSec = Math.min(span, windowSec);
+  }
+
+  return { min: startSec, max: endSec, windowSec, span };
+}
+
+function setChartViewEndSec(endSec, { followIfAtEnd = true } = {}) {
+  const span = dataSpanSeconds();
+  const windowSec = chartViewWindowSeconds();
+  const clamped = Math.min(span, Math.max(windowSec, endSec));
+  chartFollowLatest = followIfAtEnd && clamped >= span - 1;
+  chartViewEndMs = chartFollowLatest ? null : historyStartMs() + clamped * 1000;
+  applyChartViewToAll();
+  syncChartScrubber();
+}
+
+function jumpChartToLatest() {
+  chartFollowLatest = true;
+  chartViewEndMs = null;
+  applyChartViewToAll();
+  syncChartScrubber();
+}
+
+function chartAxisStepSeconds(viewSec) {
+  if (viewSec >= DAY_SEC) return HOUR_SEC * 4;
+  if (viewSec >= HOUR_SEC * 6) return HOUR_SEC;
+  if (viewSec >= HOUR_SEC * 3) return 30 * 60;
+  if (viewSec >= HOUR_SEC) return 15 * 60;
+  if (viewSec >= 15 * 60) return 5 * 60;
   const sampleStep = chartIntervalSeconds();
-  return Math.max(sampleStep, Math.ceil(spanSec / 10));
+  return Math.max(sampleStep, Math.ceil(viewSec / 10));
 }
 
 function historyStartMs() {
@@ -113,34 +171,29 @@ function historyStartMs() {
   return Date.parse(healthHistory[0].t);
 }
 
-function formatAxisTick(seconds, spanSec) {
+function formatAxisTick(seconds) {
   const date = new Date(historyStartMs() + seconds * 1000);
 
-  if (spanSec >= DAY_SEC * 2) {
-    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  }
-  if (spanSec >= DAY_SEC) {
+  if (chartViewBounds().windowSec >= HOUR_SEC) {
     return date.toLocaleString(undefined, {
       month: 'short',
       day: 'numeric',
       hour: 'numeric',
+      minute: '2-digit',
     });
   }
-  if (spanSec >= HOUR_SEC) {
-    return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  }
-  if (spanSec >= 60) {
-    const minutes = Math.floor(seconds / 60);
-    const secs = Math.round(seconds % 60);
-    return secs ? `${minutes}:${String(secs).padStart(2, '0')}` : `${minutes}m`;
-  }
-  return `${Math.round(seconds)}s`;
+
+  return date.toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  });
 }
 
-function chartAxisTitle(spanSec) {
-  if (spanSec >= DAY_SEC * 2) return `Last ${CHART_HISTORY_DAYS} days`;
-  if (spanSec >= DAY_SEC) return 'Time (days)';
-  if (spanSec >= HOUR_SEC) return 'Time (hours)';
+function chartAxisTitle() {
+  if (chartFollowLatest && chartViewWindowSeconds() >= CHART_VIEW_WINDOW_SEC * 0.99) {
+    return 'Last 6 hours';
+  }
   return 'Time';
 }
 
@@ -176,8 +229,8 @@ function canDrawMetricChart(metric) {
 }
 
 function baseChartOptions({ yMin = undefined, yMax = undefined, yTitle = '' } = {}) {
-  const spanSec = chartTimeSpanSeconds();
-  const stepSec = chartAxisStepSeconds(spanSec);
+  const { min, max, windowSec } = chartViewBounds();
+  const stepSec = chartAxisStepSeconds(windowSec);
 
   return {
     responsive: true,
@@ -202,18 +255,18 @@ function baseChartOptions({ yMin = undefined, yMax = undefined, yTitle = '' } = 
     scales: {
       x: {
         type: 'linear',
-        min: 0,
-        max: spanSec,
+        min,
+        max,
         title: {
           display: true,
-          text: chartAxisTitle(spanSec),
+          text: chartAxisTitle(),
           color: CHART_TEXT,
         },
         ticks: {
           stepSize: stepSec,
           color: CHART_TEXT,
-          maxTicksLimit: 10,
-          callback: (value) => formatAxisTick(value, spanSec),
+          maxTicksLimit: 8,
+          callback: (value) => formatAxisTick(value),
         },
         grid: { color: CHART_GRID },
       },
@@ -288,6 +341,27 @@ function segmentColorForMetric(metric, value) {
   return level ? healthLevelColor(level) : 'rgba(71, 85, 105, 0.35)';
 }
 
+function temperatureYScaleBounds() {
+  const temps = healthHistory
+    .map((point) => point.temp)
+    .filter((value) => value != null && Number.isFinite(value));
+  if (!temps.length) return {};
+
+  let yMin = Math.min(...temps);
+  let yMax = Math.max(...temps);
+
+  if (yMin === yMax) {
+    yMin -= 1;
+    yMax += 1;
+  } else {
+    const pad = Math.max(0.5, (yMax - yMin) * 0.08);
+    yMin -= pad;
+    yMax += pad;
+  }
+
+  return { yMin, yMax };
+}
+
 function buildMetricChartConfig(metric) {
   switch (metric) {
     case 'battery':
@@ -326,7 +400,7 @@ function buildMetricChartConfig(metric) {
             },
           }],
         },
-        options: baseChartOptions({ yTitle: '°C' }),
+        options: baseChartOptions({ ...temperatureYScaleBounds(), yTitle: '°C' }),
       };
     case 'storage':
       return {
@@ -371,11 +445,114 @@ function updateMetricChart(metric) {
   if (!config) return;
 
   if (statusCharts[metric]) {
-    statusCharts[metric].destroy();
-    delete statusCharts[metric];
+    const chart = statusCharts[metric];
+    chart.data.datasets = config.data.datasets;
+    const { min, max, windowSec } = chartViewBounds();
+    chart.options.scales.x.min = min;
+    chart.options.scales.x.max = max;
+    chart.options.scales.x.title.text = chartAxisTitle();
+    chart.options.scales.x.ticks.stepSize = chartAxisStepSeconds(windowSec);
+    if (metric === 'temperature') {
+      const { yMin, yMax } = temperatureYScaleBounds();
+      chart.options.scales.y.min = yMin;
+      chart.options.scales.y.max = yMax;
+    }
+    chart.update(chartPanState ? 'none' : undefined);
+    canvas.parentElement?.classList.toggle('phone-status-chart-container--scrollable', chartCanScroll());
+    return;
   }
 
   statusCharts[metric] = new Chart(canvas, config);
+  bindChartPan(canvas);
+  canvas.parentElement?.classList.toggle('phone-status-chart-container--scrollable', chartCanScroll());
+}
+
+function applyChartViewToAll() {
+  const { min, max, windowSec } = chartViewBounds();
+  const stepSec = chartAxisStepSeconds(windowSec);
+
+  Object.values(statusCharts).forEach((chart) => {
+    chart.options.scales.x.min = min;
+    chart.options.scales.x.max = max;
+    chart.options.scales.x.title.text = chartAxisTitle();
+    chart.options.scales.x.ticks.stepSize = stepSec;
+    chart.update('none');
+  });
+
+  document.querySelectorAll('.phone-status-chart-container').forEach((el) => {
+    el.classList.toggle('phone-status-chart-container--scrollable', chartCanScroll());
+  });
+}
+
+function syncChartScrubber() {
+  const scrubber = document.getElementById('phone-status-chart-scrubber');
+  const range = document.getElementById('phone-status-chart-range');
+  const latestBtn = document.getElementById('phone-status-chart-latest');
+  if (!scrubber || !range) return;
+
+  const canScroll = chartCanScroll();
+  scrubber.hidden = !canScroll;
+  if (!canScroll) return;
+
+  const { max, windowSec, span } = chartViewBounds();
+  const scrubMax = Math.max(0, span - windowSec);
+  range.min = '0';
+  range.max = String(scrubMax);
+  range.step = String(Math.max(1, Math.round(windowSec / 100)));
+  range.value = String(Math.round(max - windowSec));
+  if (latestBtn) latestBtn.disabled = chartFollowLatest;
+}
+
+function bindChartPan(canvas) {
+  if (canvas.dataset.panBound === '1') return;
+  canvas.dataset.panBound = '1';
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button != null && e.button !== 0) return;
+    if (!chartCanScroll()) return;
+    const chart = Object.values(statusCharts).find((c) => c.canvas === canvas);
+    if (!chart?.scales?.x) return;
+
+    chartPanState = {
+      pointerId: e.pointerId,
+      lastX: e.clientX,
+    };
+    canvas.setPointerCapture(e.pointerId);
+    canvas.parentElement?.classList.add('is-panning');
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!chartPanState || chartPanState.pointerId !== e.pointerId) return;
+    const chart = Object.values(statusCharts).find((c) => c.canvas === canvas);
+    const xScale = chart?.scales?.x;
+    if (!xScale?.width) return;
+
+    const dx = e.clientX - chartPanState.lastX;
+    chartPanState.lastX = e.clientX;
+    const deltaSec = -dx * ((xScale.max - xScale.min) / xScale.width);
+    setChartViewEndSec(chartViewBounds().max + deltaSec, { followIfAtEnd: true });
+  });
+
+  const endPan = (e) => {
+    if (!chartPanState || chartPanState.pointerId !== e.pointerId) return;
+    chartPanState = null;
+    canvas.parentElement?.classList.remove('is-panning');
+  };
+
+  canvas.addEventListener('pointerup', endPan);
+  canvas.addEventListener('pointercancel', endPan);
+
+  canvas.addEventListener('wheel', (e) => {
+    if (!chartCanScroll()) return;
+    e.preventDefault();
+    const chart = Object.values(statusCharts).find((c) => c.canvas === canvas);
+    const xScale = chart?.scales?.x;
+    if (!xScale?.width) return;
+
+    const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    const deltaSec = delta * ((xScale.max - xScale.min) / xScale.width);
+    setChartViewEndSec(chartViewBounds().max + deltaSec, { followIfAtEnd: true });
+  }, { passive: false });
 }
 
 function updateStatusCharts() {
@@ -386,12 +563,15 @@ function updateStatusCharts() {
     const anyChart = ['battery', 'temperature', 'storage'].some(canDrawMetricChart);
     globalEmpty.hidden = anyChart || healthHistory.length === 0;
   }
+
+  syncChartScrubber();
 }
 
 async function clearHealthHistory() {
   try {
     await apiFetch('/api/phone/history', { method: 'DELETE' });
     healthHistory = [];
+    resetChartView();
     destroyStatusCharts();
     updateStatusCharts();
   } catch (err) {
@@ -759,9 +939,10 @@ function renderContent() {
           <button type="button" class="btn btn-ghost btn-sm" id="phone-status-clear-chart">Clear graphs</button>
         </div>
         <p class="phone-health-chart-hint">
-          Showing readings from the last ${CHART_HISTORY_DAYS} days
-          ${healthHistory.length ? ` · ${healthHistory.length} sample${healthHistory.length === 1 ? '' : 's'}` : ''}.
-          Keep this tab open with auto-refresh (or open it daily) so samples accumulate.
+          Showing the last 6 hours
+          ${healthHistory.length ? ` · ${healthHistory.length} sample${healthHistory.length === 1 ? '' : 's'}` : ''}
+          · up to ${CHART_HISTORY_DAYS} days retained.
+          Drag a graph or use the slider to scroll earlier. Keep this tab open with auto-refresh (or open it daily) so samples accumulate.
         </p>
         <p class="phone-health-chart-hint" id="phone-status-charts-empty" hidden>
           Refresh at least twice to start building graphs. Enable auto-refresh or press Refresh now.
@@ -770,6 +951,22 @@ function renderContent() {
           ${renderMetricChartCard('battery', 'Battery', 'Need at least two battery readings.')}
           ${renderMetricChartCard('temperature', 'Temperature', 'Need at least two temperature readings.')}
           ${renderMetricChartCard('storage', 'Storage', 'Need at least two storage readings.')}
+        </div>
+        <div class="phone-status-chart-scrubber" id="phone-status-chart-scrubber" hidden>
+          <span class="phone-status-chart-scrubber-label">Earlier</span>
+          <input
+            type="range"
+            id="phone-status-chart-range"
+            class="phone-status-chart-range"
+            min="0"
+            max="0"
+            value="0"
+            aria-label="Scroll status history"
+          >
+          <span class="phone-status-chart-scrubber-label">Latest</span>
+          <button type="button" class="btn btn-ghost btn-sm" id="phone-status-chart-latest" disabled>
+            Jump to latest
+          </button>
         </div>
       </div>
     </div>`;
@@ -913,6 +1110,17 @@ function bindEvents() {
   document.getElementById('phone-status-clear-chart')?.addEventListener('click', async () => {
     await clearHealthHistory();
     showToast('Graph history cleared', 'info');
+  });
+
+  const range = document.getElementById('phone-status-chart-range');
+  range?.addEventListener('input', (e) => {
+    const startSec = Number(e.target.value);
+    if (!Number.isFinite(startSec)) return;
+    setChartViewEndSec(startSec + chartViewWindowSeconds(), { followIfAtEnd: true });
+  });
+
+  document.getElementById('phone-status-chart-latest')?.addEventListener('click', () => {
+    jumpChartToLatest();
   });
 }
 

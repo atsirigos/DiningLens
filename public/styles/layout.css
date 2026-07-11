@@ -1722,6 +1722,35 @@
   height: 200px;
 }
 
+.phone-status-chart-container--scrollable {
+  cursor: grab;
+  touch-action: none;
+}
+
+.phone-status-chart-container--scrollable.is-panning {
+  cursor: grabbing;
+}
+
+.phone-status-chart-scrubber {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.phone-status-chart-scrubber-label {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.phone-status-chart-range {
+  flex: 1 1 12rem;
+  min-width: 8rem;
+  accent-color: var(--color-accent, #0d9488);
+}
+
 .phone-health-card {
   margin-bottom: 1rem;
 }
