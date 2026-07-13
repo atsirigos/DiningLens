@@ -325,8 +325,9 @@ async function takePhoto({
   };
 }
 
-/** Android screenrecord hard-caps each clip at 180 seconds. */
-const SCREENRECORD_MAX_SECONDS = 180;
+/** App segment length (under Android's 180s screenrecord hard cap). */
+const SCREENRECORD_MAX_SECONDS = 120;
+const SCREENRECORD_ANDROID_HARD_MAX_SECONDS = 180;
 const SCREENRECORD_REMOTE_DIR = '/sdcard/DiningLens';
 
 async function preparePhoneForVideo(serial, { warmupMs = 1200 } = {}) {
@@ -336,11 +337,38 @@ async function preparePhoneForVideo(serial, { warmupMs = 1200 } = {}) {
     /* ignore */
   }
   try {
+    // Dismiss keyguard / keep screen interactive when possible
+    await adbShell(serial, 'wm dismiss-keyguard 2>/dev/null || true');
+  } catch {
+    /* ignore */
+  }
+  try {
     await adbShell(serial, 'am start -a android.media.action.STILL_IMAGE_CAMERA');
   } catch {
     /* ignore — screenrecord still works without camera preview */
   }
   await new Promise((r) => setTimeout(r, warmupMs));
+}
+
+/**
+ * Wait until no screenrecord process remains so the next clip can start cleanly.
+ */
+async function waitForScreenRecordIdle(serial, { timeoutMs = 5000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const out = await adbShell(serial, 'pidof screenrecord 2>/dev/null || true');
+      if (!out.trim()) {
+        // Brief settle — starting a new screenrecord too fast often yields empty clips.
+        await new Promise((r) => setTimeout(r, 600));
+        return;
+      }
+    } catch {
+      await new Promise((r) => setTimeout(r, 600));
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
 }
 
 /**
@@ -354,7 +382,14 @@ async function startScreenRecord({
 } = {}) {
   const targetDevice = device || getActiveDevice();
   const serial = await ensureConnectedForDevice(targetDevice);
-  const limit = Math.max(1, Math.min(SCREENRECORD_MAX_SECONDS, Math.round(timeLimitSec)));
+  const limit = Math.max(
+    1,
+    Math.min(
+      SCREENRECORD_MAX_SECONDS,
+      SCREENRECORD_ANDROID_HARD_MAX_SECONDS,
+      Math.round(timeLimitSec),
+    ),
+  );
   const remote = String(remotePath || '').trim();
   if (!remote.startsWith('/')) {
     throw new Error('Remote video path must be an absolute path on the phone.');
@@ -917,6 +952,7 @@ module.exports = {
   ensureConnectedForDevice,
   takePhoto,
   preparePhoneForVideo,
+  waitForScreenRecordIdle,
   startScreenRecord,
   stopScreenRecord,
   pullPhoneFile,

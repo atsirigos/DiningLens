@@ -86,7 +86,13 @@ function renderGrid() {
 
   grid.innerHTML = filteredFiles.map((file, idx) => {
     if (file.type === 'recording') {
-      const thumbSrc = file.frames[0] ? fileUrl(file.frames[0].path) : '';
+      const isVideoRec = file.mode === 'video' || (!file.frames?.length && file.videos?.length);
+      const thumbSrc = file.frames?.[0]
+        ? fileUrl(file.frames[0].path)
+        : (file.videos?.[0]?.thumbPath ? fileUrl(file.videos[0].thumbPath) : '');
+      const badge = isVideoRec
+        ? `🎥 ${file.videos?.length || 0} clip${(file.videos?.length || 0) === 1 ? '' : 's'}`
+        : `🎬 ${file.frameCount} frame${file.frameCount === 1 ? '' : 's'}`;
       return `
         <div class="card gallery-card" data-index="${idx}" tabindex="0" role="button" aria-label="View ${file.name}">
           <div class="gallery-card-actions">
@@ -94,21 +100,23 @@ function renderGrid() {
             <button type="button" class="btn btn-ghost btn-sm trash-delete-btn" data-path="${file.path}" data-label="${file.name.replace(/"/g, '&quot;')}" title="Delete permanently">✕</button>
           </div>
           <div class="gallery-card-thumb gallery-recording-thumb">
-            ${thumbSrc ? `<img src="${thumbSrc}" alt="${file.name}" loading="lazy">` : ''}
+            ${thumbSrc ? `<img src="${thumbSrc}" alt="${file.name}" loading="lazy">` : '<div class="gallery-video-placeholder" aria-hidden="true">🎥</div>'}
             <span class="gallery-recording-play" aria-hidden="true">▶</span>
-            <span class="gallery-recording-badge">🎬 ${file.frameCount} frame${file.frameCount === 1 ? '' : 's'}</span>
+            <span class="gallery-recording-badge">${badge}</span>
           </div>
           <div class="gallery-card-body">
             <div class="gallery-card-name" title="${file.name}">${file.name}</div>
             <div class="gallery-card-meta">
               <span>${formatBytes(file.size)}</span>
-              <span class="badge badge-muted">Recording</span>
+              <span class="badge badge-muted">${isVideoRec ? 'Video' : 'Recording'}</span>
             </div>
           </div>
         </div>`;
     }
 
-    const thumbSrc = file.type === 'image' ? fileUrl(file.path || file.name) : '';
+    const thumbSrc = file.type === 'image'
+      ? fileUrl(file.path || file.name)
+      : (file.thumbPath ? fileUrl(file.thumbPath) : '');
 
     return `
       <div class="card gallery-card" data-index="${idx}" tabindex="0" role="button" aria-label="View ${file.name}">
@@ -116,7 +124,7 @@ function renderGrid() {
           <button type="button" class="btn btn-ghost btn-sm trash-restore-btn" data-path="${file.path || file.name}" data-label="${file.name.replace(/"/g, '&quot;')}" title="Restore">↩</button>
           <button type="button" class="btn btn-ghost btn-sm trash-delete-btn" data-path="${file.path || file.name}" data-label="${file.name.replace(/"/g, '&quot;')}" title="Delete permanently">✕</button>
         </div>
-        ${file.type === 'image'
+        ${thumbSrc
           ? `<img class="gallery-card-thumb" src="${thumbSrc}" alt="${file.name}" loading="lazy">`
           : `<div class="gallery-card-thumb" style="display:flex;align-items:center;justify-content:center;font-size:2rem;">🎬</div>`}
         <div class="gallery-card-body">

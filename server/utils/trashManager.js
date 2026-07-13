@@ -165,17 +165,27 @@ function scanTrashDirectory(dir, baseDir = dir) {
 
     const ext = path.extname(entry.name).toLowerCase();
     if (!SUPPORTED_EXTENSIONS.has(ext)) continue;
+    if (/\.thumb\.(jpe?g|png|webp)$/i.test(entry.name)) continue;
 
     const stat = fs.statSync(fullPath);
-    const relativePath = path.relative(baseDir, fullPath);
-
-    results.push({
+    const relativePath = path.relative(baseDir, fullPath).split(path.sep).join('/');
+    const item = {
       name: entry.name,
-      path: relativePath.split(path.sep).join('/'),
+      path: relativePath,
       type: getFileType(ext),
       size: stat.size,
       modified: stat.mtime.toISOString(),
-    });
+    };
+
+    if (item.type === 'video') {
+      const thumbRel = relativePath.replace(/\.(mp4|mov)$/i, '.thumb.jpg');
+      const thumbAbs = path.join(baseDir, thumbRel);
+      if (fs.existsSync(thumbAbs)) {
+        item.thumbPath = thumbRel;
+      }
+    }
+
+    results.push(item);
   }
 
   return results.sort((a, b) => new Date(b.modified) - new Date(a.modified));
@@ -199,6 +209,20 @@ function moveToTrash(relativePath) {
   const affectedPaths = collectPathsFromEntry(dataPath.resolved);
   const destResolved = path.join(TRASH_DIR, dataPath.relative);
   const trashedRelative = moveEntry(dataPath.resolved, destResolved);
+
+  // Keep gallery video posters with their clips.
+  if (wasFile && /\.(mp4|mov)$/i.test(dataPath.relative)) {
+    const thumbRel = dataPath.relative.replace(/\.(mp4|mov)$/i, '.thumb.jpg');
+    const thumbSrc = path.join(DATA_DIR, thumbRel);
+    if (fs.existsSync(thumbSrc) && fs.statSync(thumbSrc).isFile()) {
+      const thumbDest = path.join(TRASH_DIR, thumbRel);
+      try {
+        moveEntry(thumbSrc, thumbDest);
+      } catch {
+        /* ignore thumb move failures */
+      }
+    }
+  }
 
   if (wasFile) {
     const parent = path.dirname(dataPath.resolved);

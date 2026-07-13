@@ -417,7 +417,9 @@ function renderGrid() {
       const isVideoRec = file.mode === 'video' || (!file.frames?.length && file.videos?.length);
       const thumbSrc = file.frames?.[0]
         ? `${fileApiUrl(file.frames[0].path)}`
-        : '';
+        : (file.videos?.[0]?.thumbPath
+          ? `${fileApiUrl(file.videos[0].thumbPath)}`
+          : '');
       const badge = isVideoRec
         ? `🎥 ${file.videos.length} clip${file.videos.length === 1 ? '' : 's'}`
         : `🎬 ${file.frameCount} frame${file.frameCount === 1 ? '' : 's'}`;
@@ -444,7 +446,7 @@ function renderGrid() {
     const isProcessed = !!results[file.name];
     const thumbSrc = file.type === 'image'
       ? `${fileApiUrl(file.path || file.name)}`
-      : '';
+      : (file.thumbPath ? `${fileApiUrl(file.thumbPath)}` : '');
 
     return `
       <div class="card gallery-card" data-index="${idx}" data-item-path="${escapeAttr(file.path || file.name)}" tabindex="0" role="button" aria-label="View ${file.name}">
@@ -452,7 +454,7 @@ function renderGrid() {
           ${file.type === 'image' ? renderCardRotateButtons(file.path || file.name, file.name) : ''}
           ${renderCardDeleteButton(file.path || file.name, file.name)}
         </div>
-        ${file.type === 'image'
+        ${thumbSrc
           ? `<img class="gallery-card-thumb" src="${thumbSrc}" alt="${file.name}" loading="lazy">`
           : `<div class="gallery-card-thumb" style="display:flex;align-items:center;justify-content:center;font-size:2rem;">🎬</div>`}
         <div class="gallery-card-body">

@@ -9,6 +9,7 @@ const {
   deletePhoneFilesByPath,
   closePhoneScreen,
   preparePhoneForVideo,
+  waitForScreenRecordIdle,
   startScreenRecord,
   stopScreenRecord,
   pullPhoneFile,
@@ -18,6 +19,7 @@ const {
   SCREENRECORD_REMOTE_DIR,
 } = require('./androidCamera');
 const { getSettings } = require('./db/settingsStore');
+const { generateVideoThumbnail } = require('./utils/videoThumb');
 
 const ROOT = path.join(__dirname, '..');
 const DATA_DIR = path.join(ROOT, 'data');
@@ -44,6 +46,8 @@ let nextCaptureAt = null;
 let finalizePromise = null;
 let screenRecordHandle = null;
 let videoSegmentChainPromise = null;
+/** remotePath -> in-flight pull promise (dedupes natural-end vs finalize). */
+const videoPullPromises = new Map();
 /** Pre-session / in-flight lifecycle progress (also mirrored onto session when present). */
 let pendingPhase = null;
 let pendingPhaseMessage = null;
@@ -127,6 +131,7 @@ function getPublicSession() {
     phoneFiles,
     device,
     deviceSerial,
+    nextSegmentIndex,
     ...publicSession
   } = session;
   return {
@@ -265,8 +270,12 @@ async function runPhoneCleanup(activeSession) {
 async function pullVideoSegment(activeSession, remotePath, segmentIndex) {
   if (!activeSession || !remotePath) return null;
 
-  const serial = await ensureConnectedForDevice(activeSession.device);
   const file = `video_${String(segmentIndex).padStart(3, '0')}.mp4`;
+  if ((activeSession.videos || []).some((video) => video.file === file)) {
+    return activeSession.videos.find((video) => video.file === file) || null;
+  }
+
+  const serial = await ensureConnectedForDevice(activeSession.device);
   const localPath = path.join(activeSession.destDir, file);
 
   try {
@@ -280,6 +289,19 @@ async function pullVideoSegment(activeSession, remotePath, segmentIndex) {
     }
 
     await pullPhoneFile(serial, remotePath, localPath, { timeout: VIDEO_PULL_TIMEOUT_MS });
+
+    const stat = await fs.stat(localPath);
+    // Near-empty screenrecord outputs are usually failed/interrupted starts (often 0:00 in players).
+    if (stat.size < 64 * 1024) {
+      try {
+        await fs.unlink(localPath);
+      } catch {
+        /* ignore */
+      }
+      throw new Error(
+        `Pulled video is too small (${stat.size} bytes) — the clip likely failed to start or ended immediately.`,
+      );
+    }
 
     const playable = await isPlayableMp4(localPath);
     if (!playable) {
@@ -300,6 +322,13 @@ async function pullVideoSegment(activeSession, remotePath, segmentIndex) {
     if (!activeSession.remoteVideoPaths.includes(remotePath)) {
       activeSession.remoteVideoPaths.push(remotePath);
     }
+
+    try {
+      await generateVideoThumbnail(localPath, { force: true });
+    } catch (err) {
+      console.warn(`[recording] video thumbnail failed for ${file}:`, err.message);
+    }
+
     console.log(`[recording] pulled video segment ${segmentIndex}: ${localPath}`);
     return entry;
   } catch (err) {
@@ -313,18 +342,58 @@ async function pullVideoSegment(activeSession, remotePath, segmentIndex) {
   }
 }
 
-async function stopActiveScreenRecord() {
-  const handle = screenRecordHandle;
-  screenRecordHandle = null;
-  if (!handle) return null;
-  await stopScreenRecord(handle);
-  return handle;
+function segmentIndexFromRemotePath(remotePath, fallbackIndex) {
+  const match = String(remotePath || '').match(/_(\d+)\.mp4$/i);
+  if (!match) return fallbackIndex;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackIndex;
+}
+
+function enqueueVideoPull(activeSession, remotePath, segmentIndex) {
+  if (!activeSession || !remotePath) return Promise.resolve(null);
+
+  const existing = videoPullPromises.get(remotePath);
+  if (existing) return existing;
+
+  const index = segmentIndex || segmentIndexFromRemotePath(remotePath, 1);
+  const promise = pullVideoSegment(activeSession, remotePath, index)
+    .then((entry) => {
+      if (session === activeSession && entry) {
+        activeSession.consecutiveFailures = 0;
+      }
+      return entry;
+    })
+    .catch((err) => {
+      if (session === activeSession) {
+        activeSession.consecutiveFailures += 1;
+      }
+      throw err;
+    })
+    .finally(() => {
+      videoPullPromises.delete(remotePath);
+    });
+
+  videoPullPromises.set(remotePath, promise);
+  return promise;
+}
+
+async function waitForVideoPulls() {
+  const pending = [...videoPullPromises.values()];
+  if (!pending.length) return;
+  await Promise.allSettled(pending);
 }
 
 function remainingVideoSeconds(activeSession) {
   if (!activeSession?.startedAt || !activeSession.maxDurationMs) return 0;
   const elapsed = Date.now() - Date.parse(activeSession.startedAt);
   return Math.max(0, Math.ceil((activeSession.maxDurationMs - elapsed) / 1000));
+}
+
+function allocateVideoSegment(activeSession) {
+  const segmentIndex = activeSession.nextSegmentIndex || 1;
+  activeSession.nextSegmentIndex = segmentIndex + 1;
+  const remotePath = `${SCREENRECORD_REMOTE_DIR}/${activeSession.sessionId}_${String(segmentIndex).padStart(3, '0')}.mp4`;
+  return { segmentIndex, remotePath };
 }
 
 async function startNextVideoSegment() {
@@ -338,58 +407,108 @@ async function startNextVideoSegment() {
     return;
   }
 
-  const segmentIndex = (session.videos?.length || 0) + 1;
-  const remotePath = `${SCREENRECORD_REMOTE_DIR}/${session.sessionId}_${String(segmentIndex).padStart(3, '0')}.mp4`;
+  const serial = session.deviceSerial
+    || await ensureConnectedForDevice(session.device);
+  session.deviceSerial = serial;
+
+  // Previous screenrecord must fully exit; then reopen camera so we don't record the launcher.
+  setPhase(
+    session.status === 'starting' ? 'preparing_camera' : 'starting_recorder',
+    session.status === 'starting'
+      ? 'Waking phone and opening camera…'
+      : 'Reopening camera for next clip…',
+  );
+  await waitForScreenRecordIdle(serial);
+  if (!session || (session.status !== 'recording' && session.status !== 'starting')) {
+    return;
+  }
+  await preparePhoneForVideo(serial, {
+    warmupMs: session.status === 'starting' ? 1200 : 900,
+  });
+  if (!session || (session.status !== 'recording' && session.status !== 'starting')) {
+    return;
+  }
+
+  const { segmentIndex, remotePath } = allocateVideoSegment(session);
   const timeLimitSec = Math.min(SCREENRECORD_MAX_SECONDS, remainingSec);
 
   try {
-    screenRecordHandle = await startScreenRecord({
+    setPhase('starting_recorder', `Starting screen recorder (clip ${segmentIndex})…`);
+    const handle = await startScreenRecord({
       device: session.device,
       remotePath,
       timeLimitSec,
     });
-    session.remoteVideoPaths.push(remotePath);
-    session.lastError = null;
-    session.consecutiveFailures = 0;
+
+    // Stop may have begun while screenrecord was starting.
+    if (!session || (session.status !== 'recording' && session.status !== 'starting')) {
+      await stopScreenRecord(handle);
+      if (session && !session.remoteVideoPaths.includes(remotePath)) {
+        session.remoteVideoPaths.push(remotePath);
+      }
+      return;
+    }
+
+    screenRecordHandle = handle;
+    if (!session.remoteVideoPaths.includes(remotePath)) {
+      session.remoteVideoPaths.push(remotePath);
+    }
     console.log(
       `[recording] video segment ${segmentIndex} started `
       + `(limit ${timeLimitSec}s): ${remotePath}`,
     );
 
-    const handle = screenRecordHandle;
     handle.sessionId = session.sessionId;
     handle.segmentIndex = segmentIndex;
+    if (session.status === 'recording') {
+      clearPhase();
+    }
 
-    handle.exitPromise.then(async (result) => {
+    handle.exitPromise.then(async () => {
       if (!session || session.sessionId !== handle.sessionId) return;
       if (session.status !== 'recording') return;
       if (screenRecordHandle !== handle) return;
 
+      // Detach before chaining so finalize cannot stop the wrong process.
       screenRecordHandle = null;
-      try {
-        await pullVideoSegment(session, handle.remotePath, handle.segmentIndex);
-      } catch {
-        session.consecutiveFailures += 1;
-        if (session.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-          await finalizeRecording('too_many_failures');
-          return;
+
+      const stillRemaining = remainingVideoSeconds(session);
+      let chainFailed = false;
+
+      // Start the next clip first to minimize dead air, then pull in the background.
+      if (stillRemaining >= 1) {
+        try {
+          videoSegmentChainPromise = startNextVideoSegment();
+          await videoSegmentChainPromise;
+        } catch (err) {
+          chainFailed = true;
+          console.error('[recording] next video segment failed:', err.message);
+          if (session) {
+            session.lastError = err.message;
+            session.consecutiveFailures += 1;
+          }
+        } finally {
+          videoSegmentChainPromise = null;
         }
       }
 
-      if (!session || session.status !== 'recording') return;
+      if (!session || session.sessionId !== handle.sessionId) return;
+      if (session.status !== 'recording') return;
 
-      const stillRemaining = remainingVideoSeconds(session);
+      enqueueVideoPull(session, handle.remotePath, handle.segmentIndex).catch(async () => {
+        if (session?.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+          await finalizeRecording('too_many_failures').catch(() => {});
+        }
+      });
+
       if (stillRemaining < 1) {
         await finalizeRecording('max_duration');
         return;
       }
 
-      // Natural segment end — chain the next clip
-      videoSegmentChainPromise = startNextVideoSegment().catch((err) => {
-        console.error('[recording] next video segment failed:', err.message);
-        if (session) session.lastError = err.message;
-        finalizeRecording('too_many_failures').catch(() => {});
-      });
+      if (chainFailed && session.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+        await finalizeRecording('too_many_failures').catch(() => {});
+      }
     }).catch((err) => {
       console.error('[recording] screenrecord exit handler failed:', err.message);
     });
@@ -418,14 +537,19 @@ async function finalizeRecording(reason) {
     return getStatus();
   }
 
-  finalizePromise = (async () => {
-    const activeSession = session;
-    const terminalStatus = reason === 'too_many_failures' ? 'error' : 'stopped';
+  const activeSession = session;
+  const terminalStatus = reason === 'too_many_failures' ? 'error' : 'stopped';
 
-    activeSession.status = 'stopping';
-    activeSession.stoppedAt = activeSession.stoppedAt || new Date().toISOString();
-    activeSession.stopReason = reason;
-    clearTimers();
+  // Claim stop synchronously so exit handlers do not chain another segment.
+  activeSession.status = 'stopping';
+  activeSession.stoppedAt = activeSession.stoppedAt || new Date().toISOString();
+  activeSession.stopReason = reason;
+  clearTimers();
+
+  const handleToStop = screenRecordHandle;
+  screenRecordHandle = null;
+
+  finalizePromise = (async () => {
     setPhase('stopping', 'Stopping recording…');
 
     console.log(
@@ -435,34 +559,47 @@ async function finalizeRecording(reason) {
 
     if (activeSession.mode === MODE_VIDEO) {
       try {
+        if (videoSegmentChainPromise) {
+          await videoSegmentChainPromise.catch(() => {});
+          videoSegmentChainPromise = null;
+        }
+
         setPhase('stopping_recorder', 'Stopping phone screen recorder…');
-        const stoppedHandle = await stopActiveScreenRecord();
-        if (stoppedHandle?.remotePath) {
+        if (handleToStop) {
+          await stopScreenRecord(handleToStop);
           try {
             setPhase('pulling_video', 'Downloading video from phone…');
-            await pullVideoSegment(
+            await enqueueVideoPull(
               activeSession,
-              stoppedHandle.remotePath,
-              stoppedHandle.segmentIndex || (activeSession.videos.length + 1),
+              handleToStop.remotePath,
+              handleToStop.segmentIndex
+                || segmentIndexFromRemotePath(handleToStop.remotePath, activeSession.videos.length + 1),
             );
           } catch (err) {
             console.error('[recording] final in-progress video pull failed:', err.message);
           }
         }
 
+        setPhase('pulling_video', 'Downloading remaining video clips…');
+        await waitForVideoPulls();
+
         const pulledFiles = new Set((activeSession.videos || []).map((v) => v.file));
         const remotes = activeSession.remoteVideoPaths || [];
         for (let i = 0; i < remotes.length; i += 1) {
-          const expectedFile = `video_${String(i + 1).padStart(3, '0')}.mp4`;
+          const segmentIndex = segmentIndexFromRemotePath(remotes[i], i + 1);
+          const expectedFile = `video_${String(segmentIndex).padStart(3, '0')}.mp4`;
           if (pulledFiles.has(expectedFile)) continue;
           try {
-            setPhase('pulling_video', `Downloading video clip ${i + 1} from phone…`);
-            await pullVideoSegment(activeSession, remotes[i], i + 1);
+            setPhase('pulling_video', `Downloading video clip ${segmentIndex} from phone…`);
+            await enqueueVideoPull(activeSession, remotes[i], segmentIndex);
+            pulledFiles.add(expectedFile);
           } catch (err) {
             console.error('[recording] final video pull failed:', err.message);
             activeSession.lastError = activeSession.lastError || err.message;
           }
         }
+
+        await waitForVideoPulls();
       } catch (err) {
         console.error('[recording] video finalize failed:', err.message);
         activeSession.lastError = activeSession.lastError || err.message;
@@ -489,6 +626,7 @@ async function finalizeRecording(reason) {
   } finally {
     finalizePromise = null;
     screenRecordHandle = null;
+    videoPullPromises.clear();
     if (session?.status === 'stopping') {
       session.status = reason === 'too_many_failures' ? 'error' : 'stopped';
       clearPhase();
@@ -590,6 +728,7 @@ async function startRecording({ mode, intervalSeconds, maxMinutes } = {}) {
     finalizePromise = null;
     screenRecordHandle = null;
     videoSegmentChainPromise = null;
+    videoPullPromises.clear();
 
     session = {
       status: 'starting',
@@ -611,6 +750,7 @@ async function startRecording({ mode, intervalSeconds, maxMinutes } = {}) {
       frames: [],
       videos: [],
       videoSegments: 0,
+      nextSegmentIndex: 1,
       phoneFiles: [],
       remoteVideoPaths: [],
       lastError: null,
@@ -622,9 +762,6 @@ async function startRecording({ mode, intervalSeconds, maxMinutes } = {}) {
     };
 
     if (recordingMode === MODE_VIDEO) {
-      setPhase('preparing_camera', 'Waking phone and opening camera…');
-      await preparePhoneForVideo(serial);
-      mark('camera prepared');
       setPhase('starting_recorder', 'Starting screen recorder…');
       await startNextVideoSegment();
       mark('screenrecord started');

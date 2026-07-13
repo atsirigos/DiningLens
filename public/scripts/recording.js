@@ -329,7 +329,7 @@ function renderConfigCard() {
             >
             <span class="recording-mode-card">
               <strong>Full video</strong>
-              <span>Continuous MP4 via ADB screenrecord (camera preview on screen). Clips auto-chain every 3 minutes.</span>
+              <span>Continuous MP4 via ADB screenrecord (camera preview on screen). Clips auto-chain every 2 minutes.</span>
             </span>
           </label>
         </div>

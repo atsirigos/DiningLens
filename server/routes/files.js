@@ -5,6 +5,7 @@ const { scanDataFolder } = require('../utils/fileScanner');
 const { getSettings } = require('../db/settingsStore');
 const { cropZoneFromPhoto } = require('../utils/zoneCropper');
 const { rotateImageFile, normalizeOrientation } = require('../utils/imageRotate');
+const { thumbPathForVideo, ensureVideoThumbnail } = require('../utils/videoThumb');
 
 const router = express.Router();
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
@@ -38,10 +39,39 @@ function resolveSafePath(filename) {
   return resolved;
 }
 
-router.get('/files', (req, res) => {
+async function attachVideoThumbs(files) {
+  const enriched = [];
+  for (const file of files) {
+    if (file.type !== 'video') {
+      enriched.push(file);
+      continue;
+    }
+
+    const absVideo = path.join(DATA_DIR, file.path);
+    const thumbRel = thumbPathForVideo(file.path).split(path.sep).join('/');
+    const absThumb = path.join(DATA_DIR, thumbRel);
+
+    if (!fs.existsSync(absThumb)) {
+      try {
+        await ensureVideoThumbnail(absVideo);
+      } catch (err) {
+        console.warn(`[files] video thumb failed for ${file.path}:`, err.message);
+      }
+    }
+
+    enriched.push({
+      ...file,
+      thumbPath: fs.existsSync(absThumb) ? thumbRel : null,
+    });
+  }
+  return enriched;
+}
+
+router.get('/files', async (req, res) => {
   try {
     const files = scanDataFolder(DATA_DIR);
-    res.json(files);
+    const withThumbs = await attachVideoThumbs(files);
+    res.json(withThumbs);
   } catch (err) {
     res.status(500).json({ error: 'Failed to scan data folder' });
   }

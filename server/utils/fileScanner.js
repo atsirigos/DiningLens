@@ -34,6 +34,8 @@ function scanDirectory(dir, baseDir = dir) {
 
     const ext = path.extname(entry.name).toLowerCase();
     if (!SUPPORTED_EXTENSIONS.has(ext)) continue;
+    // Sidecar posters generated for gallery video cards — not standalone gallery items.
+    if (/\.thumb\.(jpe?g|png|webp)$/i.test(entry.name)) continue;
 
     const stat = fs.statSync(fullPath);
     const relativePath = path.relative(baseDir, fullPath);
