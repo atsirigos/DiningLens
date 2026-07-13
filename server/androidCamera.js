@@ -133,6 +133,15 @@ async function ensureConnectedForDevice(device) {
       throw new Error(`Wi-Fi device "${device.name}" has no connect address.`);
     }
 
+    // Skip adb connect when the device is already online.
+    try {
+      const liveDevices = await listDevices();
+      const match = liveDevices.find((d) => d.serial === addr && d.state === 'device');
+      if (match) return addr;
+    } catch {
+      /* fall through to connect */
+    }
+
     const out = await adb(['connect', addr], { timeout: 30000 });
     if (!/connected|already connected/i.test(out)) {
       throw new Error(`Could not connect to ${device.name} (${addr}): ${out}`);
@@ -251,9 +260,9 @@ async function latestPhotoName(serial) {
   return out || null;
 }
 
-async function waitForNewPhoto(serial, before, { tries = 8, delayMs = 600 } = {}) {
-  for (let i = 0; i < tries; i++) {
-    await new Promise((r) => setTimeout(r, delayMs));
+async function waitForNewPhoto(serial, before, { tries = 12, delayMs = 250 } = {}) {
+  for (let i = 0; i < tries; i += 1) {
+    if (i > 0) await new Promise((r) => setTimeout(r, delayMs));
     const latest = await latestPhotoName(serial);
     if (latest && latest !== before) return latest;
   }
@@ -270,9 +279,14 @@ function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
-async function takePhoto({ device, warmupMs = 2500, destDir = CAPTURE_DIR } = {}) {
+async function takePhoto({
+  device,
+  serial: knownSerial = null,
+  warmupMs = 1500,
+  destDir = CAPTURE_DIR,
+} = {}) {
   const targetDevice = device || getActiveDevice();
-  const serial = await ensureConnectedForDevice(targetDevice);
+  const serial = knownSerial || await ensureConnectedForDevice(targetDevice);
   const { dcim, shutterKeycodes } = getPhoneConfig();
 
   const before = await latestPhotoName(serial);
@@ -302,14 +316,20 @@ async function takePhoto({ device, warmupMs = 2500, destDir = CAPTURE_DIR } = {}
     await rotateImageFile(localPath, frameRotation);
   }
 
-  return { file, localPath, deviceId: targetDevice?.id || null, deviceName: targetDevice?.name || serial };
+  return {
+    file,
+    localPath,
+    serial,
+    deviceId: targetDevice?.id || null,
+    deviceName: targetDevice?.name || serial,
+  };
 }
 
 /** Android screenrecord hard-caps each clip at 180 seconds. */
 const SCREENRECORD_MAX_SECONDS = 180;
 const SCREENRECORD_REMOTE_DIR = '/sdcard/DiningLens';
 
-async function preparePhoneForVideo(serial, { warmupMs = 2000 } = {}) {
+async function preparePhoneForVideo(serial, { warmupMs = 1200 } = {}) {
   try {
     await adbShell(serial, 'input keyevent KEYCODE_WAKEUP');
   } catch {
@@ -366,7 +386,7 @@ async function startScreenRecord({
   });
 
   // Fail fast if screenrecord cannot start
-  await new Promise((r) => setTimeout(r, 800));
+  await new Promise((r) => setTimeout(r, 400));
   if (proc.exitCode != null) {
     const result = await exitPromise;
     throw new Error(
@@ -468,6 +488,7 @@ async function isPlayableMp4(localPath) {
 async function deletePhoneFilesByPath(serial, remotePaths) {
   const deleted = [];
   const failed = [];
+  const valid = [];
 
   for (const remotePath of remotePaths || []) {
     const remote = String(remotePath || '').trim();
@@ -475,15 +496,28 @@ async function deletePhoneFilesByPath(serial, remotePaths) {
       failed.push({ path: remote, error: 'Invalid path' });
       continue;
     }
-    try {
-      await adbShell(serial, `rm -f ${shellQuote(remote)}`);
-      if (await phoneFileExists(serial, remote)) {
-        failed.push({ path: remote, error: 'File still present on phone' });
-      } else {
-        deleted.push(remote);
-      }
-    } catch (err) {
+    valid.push(remote);
+  }
+
+  if (!valid.length) {
+    return { deleted, failed };
+  }
+
+  try {
+    await adbShell(serial, `rm -f ${valid.map(shellQuote).join(' ')}`);
+  } catch (err) {
+    for (const remote of valid) {
       failed.push({ path: remote, error: err.message });
+    }
+    return { deleted, failed };
+  }
+
+  const stillPresent = new Set(await listExistingPhoneFiles(serial, valid));
+  for (const remote of valid) {
+    if (stillPresent.has(remote)) {
+      failed.push({ path: remote, error: 'File still present on phone' });
+    } else {
+      deleted.push(remote);
     }
   }
 
@@ -514,131 +548,75 @@ async function findPhonePhotoPaths(serial, filename) {
   const safeName = sanitizePhoneFilename(filename);
   if (!safeName) return [];
 
-  const dcim = getPhoneConfig().dcim;
-  const paths = new Set(expandDcimPaths(dcim, safeName));
-
   try {
     const found = await adbShell(
       serial,
       `find /sdcard/DCIM /storage/emulated/0/DCIM /sdcard/Pictures /storage/emulated/0/Pictures -name ${shellQuote(safeName)} 2>/dev/null`,
     );
-    found.split('\n').map((line) => line.trim()).filter(Boolean).forEach((line) => paths.add(line));
+    return found.split('\n').map((line) => line.trim()).filter(Boolean);
   } catch {
-    /* ignore find errors */
+    return [];
   }
-
-  return [...paths];
 }
 
-async function phoneFileExists(serial, filePath) {
+async function listExistingPhoneFiles(serial, filePaths) {
+  const unique = [...new Set((filePaths || []).filter(Boolean))];
+  if (!unique.length) return [];
+
+  const script = unique
+    .map((filePath) => `if [ -f ${shellQuote(filePath)} ]; then printf '%s\\n' ${shellQuote(filePath)}; fi`)
+    .join('; ');
+
   try {
-    const out = await adbShell(serial, `test -f ${shellQuote(filePath)} && echo 1 || echo 0`);
-    return out.trim() === '1';
+    const out = await adbShell(serial, script);
+    return out.split('\n').map((line) => line.trim()).filter(Boolean);
   } catch {
-    return false;
+    return [];
   }
 }
 
-async function removeFromMediaStore(serial, filename, filePaths) {
-  const uris = [
-    'content://media/external/images/media',
-    'content://media/external/video/media',
-    'content://media/external/file',
-    'content://media/external/primary/images/media',
-    'content://media/external/primary/file',
-  ];
+async function removeFromMediaStoreByNames(serial, filenames) {
+  const names = [...new Set((filenames || []).map(sanitizePhoneFilename).filter(Boolean))];
+  if (!names.length) return;
 
-  for (const uri of uris) {
+  // Camera stills live in the primary images collection; one URI is enough.
+  const uri = 'content://media/external/images/media';
+  const where = names.map((name) => `_display_name=${shellQuote(name)}`).join(' OR ');
+
+  try {
+    await adbShell(serial, `content delete --uri ${uri} --where "${where}"`);
+    return;
+  } catch {
+    /* fall through to per-file deletes */
+  }
+
+  for (const name of names) {
     try {
       await adbShell(
         serial,
-        `content delete --uri ${uri} --where "_display_name=${shellQuote(filename)}"`,
+        `content delete --uri ${uri} --where "_display_name=${shellQuote(name)}"`,
       );
     } catch {
-      /* ignore per-uri failures */
-    }
-
-    for (const filePath of filePaths) {
-      try {
-        await adbShell(
-          serial,
-          `content delete --uri ${uri} --where "_data=${shellQuote(filePath)}"`,
-        );
-      } catch {
-        /* ignore per-path failures */
-      }
+      /* ignore per-file media-store failures */
     }
   }
 }
 
 async function refreshMediaStore(serial, dcimPath) {
   const dcim = (dcimPath || '/sdcard/DCIM/Camera').replace(/\/+$/, '');
-  const scanPaths = [dcim];
-  if (dcim.startsWith('/sdcard/')) {
-    scanPaths.push(`/storage/emulated/0${dcim.slice('/sdcard'.length)}`);
+  const scanPath = dcim.startsWith('/sdcard/')
+    ? `/storage/emulated/0${dcim.slice('/sdcard'.length)}`
+    : dcim;
+  const uri = `file://${scanPath}`;
+
+  try {
+    await adbShell(
+      serial,
+      `am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d ${shellQuote(uri)}`,
+    );
+  } catch {
+    /* ignore */
   }
-
-  for (const scanPath of scanPaths) {
-    const uri = scanPath.startsWith('/sdcard/')
-      ? `file:///storage/emulated/0${scanPath.slice('/sdcard'.length)}`
-      : `file://${scanPath}`;
-
-    try {
-      await adbShell(serial, `am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d ${shellQuote(uri)}`);
-    } catch {
-      /* ignore */
-    }
-
-    try {
-      await adbShell(serial, `cmd media scan-file ${shellQuote(scanPath)}`);
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
-async function deletePhonePhoto(serial, filename, { dcim } = {}) {
-  const safeName = sanitizePhoneFilename(filename);
-  if (!safeName) {
-    return { file: filename, deleted: false, error: 'Invalid filename' };
-  }
-
-  const dcimPath = dcim || getPhoneConfig().dcim;
-  const filePaths = await findPhonePhotoPaths(serial, safeName);
-  let removedFromDisk = false;
-
-  for (const filePath of filePaths) {
-    try {
-      await adbShell(serial, `rm -f ${shellQuote(filePath)}`);
-      if (!(await phoneFileExists(serial, filePath))) {
-        removedFromDisk = true;
-      }
-    } catch (err) {
-      if (!removedFromDisk) {
-        return { file: safeName, deleted: false, error: err.message };
-      }
-    }
-  }
-
-  await removeFromMediaStore(serial, safeName, filePaths);
-  await refreshMediaStore(serial, dcimPath);
-
-  const stillOnDisk = [];
-  for (const filePath of filePaths) {
-    if (await phoneFileExists(serial, filePath)) {
-      stillOnDisk.push(filePath);
-    }
-  }
-
-  if (stillOnDisk.length) {
-    return {
-      file: safeName,
-      deleted: false,
-      error: `File still present on phone (${stillOnDisk.join(', ')})`,
-    };
-  }
-
-  return { file: safeName, deleted: true };
 }
 
 async function deletePhonePhotos(serial, filenames, { dcim } = {}) {
@@ -650,15 +628,67 @@ async function deletePhonePhotos(serial, filenames, { dcim } = {}) {
     return { deleted: [], failed: [] };
   }
 
+  const dcimPath = dcim || getPhoneConfig().dcim;
+  const pathsByFile = new Map();
+  const allPaths = [];
+
+  for (const file of safeFiles) {
+    const paths = expandDcimPaths(dcimPath, file);
+    pathsByFile.set(file, paths);
+    allPaths.push(...paths);
+  }
+
+  const uniquePaths = [...new Set(allPaths)];
+
+  // One batched rm for every known candidate path.
+  try {
+    await adbShell(serial, `rm -f ${uniquePaths.map(shellQuote).join(' ')}`);
+  } catch {
+    /* continue; survivors are handled below */
+  }
+
+  await removeFromMediaStoreByNames(serial, safeFiles);
+  await refreshMediaStore(serial, dcimPath);
+
+  let stillPresent = new Set(await listExistingPhoneFiles(serial, uniquePaths));
+
+  // Rare fallback: locate survivors with find, then delete those exact paths.
+  if (stillPresent.size) {
+    const survivors = safeFiles.filter((file) => (
+      (pathsByFile.get(file) || []).some((filePath) => stillPresent.has(filePath))
+    ));
+
+    for (const file of survivors) {
+      const found = await findPhonePhotoPaths(serial, file);
+      if (!found.length) continue;
+      try {
+        await adbShell(serial, `rm -f ${found.map(shellQuote).join(' ')}`);
+      } catch {
+        /* ignore */
+      }
+      for (const filePath of found) {
+        pathsByFile.get(file)?.push(filePath);
+      }
+    }
+
+    const recheckPaths = [...new Set(
+      survivors.flatMap((file) => pathsByFile.get(file) || []),
+    )];
+    stillPresent = new Set(await listExistingPhoneFiles(serial, recheckPaths));
+  }
+
   const deleted = [];
   const failed = [];
 
   for (const file of safeFiles) {
-    const result = await deletePhonePhoto(serial, file, { dcim });
-    if (result.deleted) {
-      deleted.push(file);
+    const leftover = (pathsByFile.get(file) || []).filter((filePath) => stillPresent.has(filePath));
+    if (leftover.length) {
+      failed.push({
+        file,
+        error: `File still present on phone (${leftover.join(', ')})`,
+      });
     } else {
-      failed.push({ file, error: result.error || 'Delete failed' });
+      deleted.push(file);
     }
   }
 

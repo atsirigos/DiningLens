@@ -3,6 +3,7 @@ import { apiFetch, showToast } from './utils.js';
 const DEFAULT_INTERVAL_SECONDS = 30;
 const DEFAULT_MAX_MINUTES = 30;
 const POLL_INTERVAL_MS = 2500;
+const PHASE_POLL_INTERVAL_MS = 500;
 const DEFAULT_PLAYBACK_FPS = 5;
 const MODE_TIMELAPSE = 'timelapse';
 const MODE_VIDEO = 'video';
@@ -17,6 +18,8 @@ let playbackPlaying = false;
 let playbackTimer = null;
 let playbackFps = DEFAULT_PLAYBACK_FPS;
 let selectedMode = MODE_TIMELAPSE;
+let selectedIntervalSeconds = DEFAULT_INTERVAL_SECONDS;
+let selectedMaxMinutes = DEFAULT_MAX_MINUTES;
 
 function playbackFrameMs() {
   return Math.max(50, Math.round(1000 / playbackFps));
@@ -37,29 +40,35 @@ function formatDuration(ms) {
 }
 
 function statusBadgeClass() {
-  switch (status?.status) {
-    case 'recording':
-      return 'badge-success';
-    case 'stopped':
-      return 'badge-muted';
-    case 'error':
-      return 'badge-danger';
-    default:
-      return 'badge-muted';
-  }
+  const value = status?.status;
+  if (value === 'recording') return 'badge-success';
+  if (value === 'starting' || value === 'stopping' || starting || stopping) return 'badge-warning';
+  if (value === 'error') return 'badge-danger';
+  return 'badge-muted';
 }
 
 function statusLabel() {
-  switch (status?.status) {
-    case 'recording':
-      return 'Recording';
-    case 'stopped':
-      return 'Stopped';
-    case 'error':
-      return 'Error';
-    default:
-      return 'Idle';
-  }
+  if (status?.status === 'recording') return 'Recording';
+  if (status?.status === 'starting' || starting) return 'Starting';
+  if (status?.status === 'stopping' || stopping) return 'Stopping';
+  if (status?.status === 'stopped') return 'Stopped';
+  if (status?.status === 'error') return 'Error';
+  return 'Idle';
+}
+
+function phaseMessage() {
+  if (status?.phaseMessage) return status.phaseMessage;
+  if (status?.status === 'starting' || starting) return 'Initializing recording…';
+  if (status?.status === 'stopping' || stopping) return 'Finalizing recording…';
+  return '';
+}
+
+function isSessionBusy() {
+  return status?.status === 'recording'
+    || status?.status === 'starting'
+    || status?.status === 'stopping'
+    || starting
+    || stopping;
 }
 
 function stopReasonLabel() {
@@ -98,7 +107,13 @@ function phoneCleanupLabel() {
 }
 
 function currentMode() {
-  if (status?.status === 'recording' || status?.status === 'stopped' || status?.status === 'error') {
+  if (
+    status?.status === 'recording'
+    || status?.status === 'starting'
+    || status?.status === 'stopping'
+    || status?.status === 'stopped'
+    || status?.status === 'error'
+  ) {
     return status.mode || MODE_TIMELAPSE;
   }
   return selectedMode;
@@ -123,9 +138,38 @@ function getFormValues() {
   const modeInput = document.querySelector('input[name="recording-mode"]:checked');
   return {
     mode: modeInput?.value || selectedMode || MODE_TIMELAPSE,
-    intervalSeconds: Number(intervalInput?.value) || DEFAULT_INTERVAL_SECONDS,
-    maxMinutes: Number(maxInput?.value) || DEFAULT_MAX_MINUTES,
+    intervalSeconds: Number(intervalInput?.value) || selectedIntervalSeconds || DEFAULT_INTERVAL_SECONDS,
+    maxMinutes: Number(maxInput?.value) || selectedMaxMinutes || DEFAULT_MAX_MINUTES,
   };
+}
+
+function syncSelectedCaptureSettingsFromForm() {
+  const { mode, intervalSeconds, maxMinutes } = getFormValues();
+  selectedMode = mode === MODE_VIDEO ? MODE_VIDEO : MODE_TIMELAPSE;
+  selectedIntervalSeconds = intervalSeconds;
+  selectedMaxMinutes = maxMinutes;
+}
+
+function syncSelectedCaptureSettingsFromStatus() {
+  if (!status) return;
+  if (status.mode === MODE_VIDEO || status.mode === MODE_TIMELAPSE) {
+    selectedMode = status.mode === MODE_VIDEO ? MODE_VIDEO : MODE_TIMELAPSE;
+  }
+  // Only adopt server values for live/finished sessions — idle defaults are always 30/30.
+  if (
+    status.status === 'recording'
+    || status.status === 'starting'
+    || status.status === 'stopping'
+    || status.status === 'stopped'
+    || status.status === 'error'
+  ) {
+    if (Number.isFinite(status.intervalSeconds) && status.intervalSeconds > 0) {
+      selectedIntervalSeconds = status.intervalSeconds;
+    }
+    if (Number.isFinite(status.maxMinutes) && status.maxMinutes > 0) {
+      selectedMaxMinutes = status.maxMinutes;
+    }
+  }
 }
 
 function getVideos() {
@@ -247,14 +291,10 @@ function togglePlayback() {
 }
 
 function renderConfigCard() {
-  const isRecording = status?.status === 'recording';
+  const busy = isSessionBusy();
   const mode = currentMode();
-  const intervalValue = isRecording
-    ? status.intervalSeconds
-    : (status?.intervalSeconds ?? DEFAULT_INTERVAL_SECONDS);
-  const maxValue = isRecording
-    ? status.maxMinutes
-    : (status?.maxMinutes ?? DEFAULT_MAX_MINUTES);
+  const intervalValue = selectedIntervalSeconds;
+  const maxValue = selectedMaxMinutes;
 
   return `
     <div class="card recording-config">
@@ -265,7 +305,7 @@ function renderConfigCard() {
         and appear in the Gallery.
       </p>
 
-      <fieldset class="recording-mode-fieldset" ${isRecording ? 'disabled' : ''}>
+      <fieldset class="recording-mode-fieldset" ${busy ? 'disabled' : ''}>
         <legend class="recording-mode-legend">Recording mode</legend>
         <div class="recording-mode-options">
           <label class="recording-mode-option">
@@ -305,7 +345,7 @@ function renderConfigCard() {
             max="600"
             step="1"
             value="${intervalValue ?? DEFAULT_INTERVAL_SECONDS}"
-            ${isRecording ? 'disabled' : ''}
+            ${busy ? 'disabled' : ''}
           >
         </div>
         <div class="form-group">
@@ -317,12 +357,12 @@ function renderConfigCard() {
             max="240"
             step="1"
             value="${maxValue}"
-            ${isRecording ? 'disabled' : ''}
+            ${busy ? 'disabled' : ''}
           >
         </div>
         <div class="form-group" id="recording-rotation-group" ${mode === MODE_VIDEO ? 'hidden' : ''}>
           <label for="recording-frame-rotation">Camera photo rotation</label>
-          <select id="recording-frame-rotation" ${isRecording ? 'disabled' : ''}>
+          <select id="recording-frame-rotation" ${busy ? 'disabled' : ''}>
             <option value="0" ${phoneSettings.frameRotation === 0 ? 'selected' : ''}>0° (no rotation)</option>
             <option value="90" ${phoneSettings.frameRotation === 90 ? 'selected' : ''}>90° clockwise</option>
             <option value="180" ${phoneSettings.frameRotation === 180 ? 'selected' : ''}>180°</option>
@@ -338,17 +378,19 @@ function renderConfigCard() {
           type="button"
           class="btn btn-primary"
           id="recording-start-btn"
-          ${isRecording || starting ? 'disabled' : ''}
+          ${busy ? 'disabled' : ''}
         >
-          ${starting ? 'Starting…' : (mode === MODE_VIDEO ? 'Start video' : 'Start recording')}
+          ${starting || status?.status === 'starting'
+            ? 'Starting…'
+            : (mode === MODE_VIDEO ? 'Start video' : 'Start recording')}
         </button>
         <button
           type="button"
           class="btn btn-ghost"
           id="recording-stop-btn"
-          ${!isRecording || stopping ? 'disabled' : ''}
+          ${status?.status !== 'recording' || stopping || status?.status === 'stopping' ? 'disabled' : ''}
         >
-          ${stopping ? 'Stopping…' : 'Stop recording'}
+          ${stopping || status?.status === 'stopping' ? 'Stopping…' : 'Stop recording'}
         </button>
       </div>
     </div>`;
@@ -357,6 +399,7 @@ function renderConfigCard() {
 function renderStatusCard() {
   const isActive = status?.status === 'recording';
   const video = isVideoMode();
+  const phase = phaseMessage();
 
   return `
     <div class="card recording-status" id="recording-status-card">
@@ -364,6 +407,11 @@ function renderStatusCard() {
         <h3 class="recording-section-title">Session status</h3>
         <span class="badge ${statusBadgeClass()}" id="recording-status-badge">${statusLabel()}</span>
       </div>
+
+      <p class="recording-phase" id="recording-phase" ${phase ? '' : 'hidden'}>
+        <span class="recording-phase-spinner" aria-hidden="true"></span>
+        <span id="recording-phase-text">${phase}</span>
+      </p>
 
       <div class="recording-status-grid">
         <div class="recording-stat">
@@ -499,12 +547,37 @@ function updateLiveStatus() {
   const isActive = status?.status === 'recording';
   const video = isVideoMode();
   const prevFrameCount = Number(document.getElementById('recording-frames-count')?.textContent || 0);
+  const phase = phaseMessage();
 
-  document.getElementById('recording-status-badge')?.classList.remove('badge-success', 'badge-muted', 'badge-danger');
+  document.getElementById('recording-status-badge')?.classList.remove(
+    'badge-success',
+    'badge-muted',
+    'badge-danger',
+    'badge-warning',
+  );
   const badge = document.getElementById('recording-status-badge');
   if (badge) {
     badge.classList.add(statusBadgeClass());
     badge.textContent = statusLabel();
+  }
+
+  const phaseEl = document.getElementById('recording-phase');
+  const phaseText = document.getElementById('recording-phase-text');
+  if (phaseEl) phaseEl.hidden = !phase;
+  if (phaseText) phaseText.textContent = phase;
+
+  const startBtn = document.getElementById('recording-start-btn');
+  if (startBtn) {
+    const busy = isSessionBusy();
+    startBtn.disabled = busy;
+    startBtn.textContent = starting || status?.status === 'starting'
+      ? 'Starting…'
+      : (isVideoMode() ? 'Start video' : 'Start recording');
+  }
+  const stopBtn = document.getElementById('recording-stop-btn');
+  if (stopBtn) {
+    stopBtn.disabled = status?.status !== 'recording' || stopping;
+    stopBtn.textContent = stopping || status?.status === 'stopping' ? 'Stopping…' : 'Stop recording';
   }
 
   const modeLabel = document.getElementById('recording-mode-label');
@@ -569,10 +642,6 @@ function updateLiveStatus() {
     const counter = document.getElementById('recording-playback-counter');
     const videos = getVideos();
     if (counter) counter.textContent = `${videos.length} clip${videos.length === 1 ? '' : 's'}`;
-    const player = document.getElementById('recording-video-player');
-    if (player && videos.length && !player.src.includes(videos[videos.length - 1].file)) {
-      // Keep current clip unless empty
-    }
     return;
   }
 
@@ -616,27 +685,36 @@ function stopPolling() {
   }
 }
 
-function startPolling() {
+function startPolling({ fast = false } = {}) {
   stopPolling();
   pollTimer = setInterval(async () => {
     try {
       status = await apiFetch('/api/recording/status');
       updateLiveStatus();
-      if (status.status !== 'recording') {
+      const active = status.status === 'recording'
+        || status.status === 'starting'
+        || status.status === 'stopping'
+        || starting
+        || stopping;
+      if (!active) {
         stopPolling();
         syncPlaybackControls();
+        return;
+      }
+      if (status.status === 'recording' && fast && !starting && !stopping) {
+        startPolling({ fast: false });
       }
     } catch (err) {
       console.error('recording status poll failed:', err);
     }
-  }, POLL_INTERVAL_MS);
+  }, fast ? PHASE_POLL_INTERVAL_MS : POLL_INTERVAL_MS);
 }
 
 async function loadStatus() {
   status = await apiFetch('/api/recording/status');
-  if (status.mode) selectedMode = status.mode === MODE_VIDEO ? MODE_VIDEO : MODE_TIMELAPSE;
-  if (status.status === 'recording') {
-    startPolling();
+  syncSelectedCaptureSettingsFromStatus();
+  if (status.status === 'recording' || status.status === 'starting' || status.status === 'stopping') {
+    startPolling({ fast: status.status !== 'recording' });
   }
 }
 
@@ -655,9 +733,24 @@ function bindEvents() {
     });
   });
 
+  document.getElementById('recording-interval')?.addEventListener('change', () => {
+    selectedIntervalSeconds = Number(document.getElementById('recording-interval')?.value)
+      || selectedIntervalSeconds
+      || DEFAULT_INTERVAL_SECONDS;
+  });
+  document.getElementById('recording-max-minutes')?.addEventListener('change', () => {
+    selectedMaxMinutes = Number(document.getElementById('recording-max-minutes')?.value)
+      || selectedMaxMinutes
+      || DEFAULT_MAX_MINUTES;
+  });
+
   document.getElementById('recording-start-btn')?.addEventListener('click', async () => {
-    const { mode, intervalSeconds, maxMinutes } = getFormValues();
-    selectedMode = mode === MODE_VIDEO ? MODE_VIDEO : MODE_TIMELAPSE;
+    syncSelectedCaptureSettingsFromForm();
+    const { mode, intervalSeconds, maxMinutes } = {
+      mode: selectedMode,
+      intervalSeconds: selectedIntervalSeconds,
+      maxMinutes: selectedMaxMinutes,
+    };
 
     if (selectedMode === MODE_TIMELAPSE) {
       if (intervalSeconds < 5 || intervalSeconds > 600) {
@@ -672,6 +765,7 @@ function bindEvents() {
 
     starting = true;
     render();
+    startPolling({ fast: true });
 
     try {
       stopPlayback();
@@ -682,19 +776,23 @@ function bindEvents() {
         method: 'POST',
         body: JSON.stringify(body),
       });
+      syncSelectedCaptureSettingsFromStatus();
       showToast(selectedMode === MODE_VIDEO ? 'Video recording started' : 'Recording started', 'success');
-      startPolling();
+      startPolling({ fast: false });
     } catch (err) {
       showToast(err.message, 'error');
+      stopPolling();
     } finally {
       starting = false;
       render();
+      if (status?.status === 'recording') startPolling({ fast: false });
     }
   });
 
   document.getElementById('recording-stop-btn')?.addEventListener('click', async () => {
     stopping = true;
     render();
+    startPolling({ fast: true });
 
     try {
       status = await apiFetch('/api/recording/stop', { method: 'POST' });

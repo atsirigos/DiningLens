@@ -326,8 +326,36 @@
     }
 
     .badge-recording { background: rgba(5, 150, 105, 0.15); color: var(--success); }
+    .badge-busy { background: rgba(217, 119, 6, 0.15); color: #b45309; }
     .badge-stopped { background: rgba(100, 116, 139, 0.15); color: var(--muted); }
     .badge-error { background: rgba(220, 38, 38, 0.12); color: var(--danger); }
+
+    .recording-phase {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin: 0 0 1rem;
+      padding: 0.65rem 0.85rem;
+      border-radius: 0.5rem;
+      background: rgba(217, 119, 6, 0.1);
+      color: #92400e;
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+
+    .recording-phase[hidden] {
+      display: none;
+    }
+
+    .recording-phase-spinner {
+      width: 0.9rem;
+      height: 0.9rem;
+      border: 2px solid rgba(146, 64, 14, 0.25);
+      border-top-color: #b45309;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
     .badge-success { background: rgba(5, 150, 105, 0.15); color: var(--success); }
 
     .live-header {
@@ -542,6 +570,10 @@
           <strong>Live session</strong>
           <span id="live-badge" class="badge badge-recording">Recording</span>
         </div>
+        <p class="recording-phase" id="recording-phase" hidden>
+          <span class="recording-phase-spinner" aria-hidden="true"></span>
+          <span id="recording-phase-text"></span>
+        </p>
         <div class="stat-grid">
           <div class="stat">
             <span class="stat-label">Mode</span>
@@ -595,6 +627,7 @@
     const DEFAULT_INTERVAL = 30;
     const DEFAULT_MAX_MINUTES = 30;
     const RECORDING_POLL_MS = 2500;
+    const PHASE_POLL_MS = 500;
     const HEALTH_POLL_MS = 5000;
     const SERVER_WAIT_MS = 2000;
     const MODE_TIMELAPSE = 'timelapse';
@@ -957,28 +990,43 @@
       }
     }
 
+    function phaseMessage() {
+      if (status?.phaseMessage) return status.phaseMessage;
+      if (status?.status === 'starting' || starting) return 'Initializing recording…';
+      if (status?.status === 'stopping' || stopping) return 'Finalizing recording…';
+      return '';
+    }
+
+    function isSessionBusy() {
+      return status?.status === 'recording'
+        || status?.status === 'starting'
+        || status?.status === 'stopping'
+        || starting
+        || stopping;
+    }
+
     function updateLivePanel() {
       const isRecording = status?.status === 'recording';
+      const busy = isSessionBusy();
       const livePanel = document.getElementById('live-panel');
       const btnArea = document.getElementById('btn-area');
       const recordingCard = document.getElementById('recording-card');
+      const phase = phaseMessage();
 
-      livePanel.hidden = !isRecording && status?.status !== 'recording';
+      livePanel.hidden = !busy;
       recordingCard.classList.toggle('recording-active', isRecording);
       btnArea.classList.toggle('recording-active', isRecording);
-
-      if (!isRecording && status?.status !== 'recording') {
-        if (status?.status === 'stopped' || status?.status === 'error') {
-          livePanel.hidden = true;
-        }
-      } else {
-        livePanel.hidden = false;
-      }
 
       const badge = document.getElementById('live-badge');
       if (status?.status === 'recording') {
         badge.textContent = 'Recording';
         badge.className = 'badge badge-recording';
+      } else if (status?.status === 'starting' || starting) {
+        badge.textContent = 'Starting';
+        badge.className = 'badge badge-busy';
+      } else if (status?.status === 'stopping' || stopping) {
+        badge.textContent = 'Stopping';
+        badge.className = 'badge badge-busy';
       } else if (status?.status === 'error') {
         badge.textContent = 'Error';
         badge.className = 'badge badge-error';
@@ -986,6 +1034,11 @@
         badge.textContent = 'Stopped';
         badge.className = 'badge badge-stopped';
       }
+
+      const phaseEl = document.getElementById('recording-phase');
+      const phaseText = document.getElementById('recording-phase-text');
+      if (phaseEl) phaseEl.hidden = !phase;
+      if (phaseText) phaseText.textContent = phase;
 
       document.getElementById('stat-mode').textContent = isVideoMode() ? 'Full video' : 'Photo frames';
       document.getElementById('stat-elapsed').textContent = formatDuration(status?.elapsedMs || 0);
@@ -1031,26 +1084,27 @@
 
     function syncControls() {
       const isRecording = status?.status === 'recording';
+      const busy = isSessionBusy();
       const intervalInput = document.getElementById('interval-input');
       const maxInput = document.getElementById('max-input');
       const startBtn = document.getElementById('start-btn');
       const stopBtn = document.getElementById('stop-btn');
       const modeOptions = document.getElementById('mode-options');
 
-      if (modeOptions) modeOptions.classList.toggle('is-disabled', isRecording || starting);
+      if (modeOptions) modeOptions.classList.toggle('is-disabled', busy);
       document.querySelectorAll('input[name="recording-mode"]').forEach((el) => {
-        el.disabled = isRecording || starting;
+        el.disabled = busy;
       });
-      intervalInput.disabled = isRecording || starting;
-      maxInput.disabled = isRecording || starting;
-      startBtn.disabled = isRecording || starting || stopping || !isPhoneReady();
-      stopBtn.disabled = !isRecording || stopping;
+      intervalInput.disabled = busy;
+      maxInput.disabled = busy;
+      startBtn.disabled = busy || !isPhoneReady();
+      stopBtn.disabled = !isRecording || stopping || status?.status === 'stopping';
 
       const video = isVideoMode();
-      startBtn.textContent = starting
+      startBtn.textContent = starting || status?.status === 'starting'
         ? 'Starting…'
         : (video ? 'Start video' : 'Start recording');
-      stopBtn.textContent = stopping ? 'Stopping…' : 'Stop recording';
+      stopBtn.textContent = stopping || status?.status === 'stopping' ? 'Stopping…' : 'Stop recording';
       syncModeUi();
     }
 
@@ -1073,13 +1127,18 @@
       }
     }
 
-    function startRecordingPoll() {
+    function startRecordingPoll({ fast = false } = {}) {
       stopRecordingPoll();
       recordingPollTimer = setInterval(async () => {
         try {
           status = await apiFetch('/api/recording/status');
           updateLivePanel();
-          if (status.status !== 'recording') {
+          const active = status.status === 'recording'
+            || status.status === 'starting'
+            || status.status === 'stopping'
+            || starting
+            || stopping;
+          if (!active) {
             stopRecordingPoll();
             if (status.status === 'stopped' || status.status === 'error') {
               try {
@@ -1089,11 +1148,15 @@
               }
               renderSummary();
             }
+            return;
+          }
+          if (status.status === 'recording' && fast && !starting && !stopping) {
+            startRecordingPoll({ fast: false });
           }
         } catch (err) {
           console.error('recording poll failed:', err);
         }
-      }, RECORDING_POLL_MS);
+      }, fast ? PHASE_POLL_MS : RECORDING_POLL_MS);
     }
 
     async function loadRecordingStatus() {
@@ -1103,9 +1166,9 @@
         if (radio) radio.checked = true;
         syncModeUi();
       }
-      if (status.status === 'recording') {
+      if (status.status === 'recording' || status.status === 'starting' || status.status === 'stopping') {
         document.getElementById('live-panel').hidden = false;
-        startRecordingPoll();
+        startRecordingPoll({ fast: status.status !== 'recording' });
       }
       if (status.status === 'stopped' || status.status === 'error') {
         renderSummary();
@@ -1138,6 +1201,9 @@
       healthAtStart = health;
       healthAtEnd = null;
       syncControls();
+      document.getElementById('live-panel').hidden = false;
+      startRecordingPoll({ fast: true });
+      updateLivePanel();
 
       try {
         try {
@@ -1153,19 +1219,24 @@
           body: JSON.stringify(body),
         });
         showToast(mode === MODE_VIDEO ? 'Video recording started' : 'Recording started', 'success');
-        startRecordingPoll();
+        startRecordingPoll({ fast: false });
         updateLivePanel();
       } catch (err) {
         showToast(err.message, 'error');
+        stopRecordingPoll();
       } finally {
         starting = false;
         syncControls();
+        updateLivePanel();
+        if (status?.status === 'recording') startRecordingPoll({ fast: false });
       }
     });
 
     document.getElementById('stop-btn').addEventListener('click', async () => {
       stopping = true;
       syncControls();
+      startRecordingPoll({ fast: true });
+      updateLivePanel();
 
       try {
         status = await apiFetch('/api/recording/stop', { method: 'POST' });
@@ -1183,6 +1254,7 @@
       } finally {
         stopping = false;
         syncControls();
+        updateLivePanel();
       }
     });
 

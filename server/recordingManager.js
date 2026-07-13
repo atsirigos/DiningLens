@@ -44,6 +44,22 @@ let nextCaptureAt = null;
 let finalizePromise = null;
 let screenRecordHandle = null;
 let videoSegmentChainPromise = null;
+/** Pre-session / in-flight lifecycle progress (also mirrored onto session when present). */
+let pendingPhase = null;
+let pendingPhaseMessage = null;
+
+function setPhase(phase, message) {
+  pendingPhase = phase || null;
+  pendingPhaseMessage = message || null;
+  if (session) {
+    session.phase = pendingPhase;
+    session.phaseMessage = pendingPhaseMessage;
+  }
+}
+
+function clearPhase() {
+  setPhase(null, null);
+}
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -110,6 +126,7 @@ function getPublicSession() {
     remoteVideoPaths,
     phoneFiles,
     device,
+    deviceSerial,
     ...publicSession
   } = session;
   return {
@@ -141,11 +158,24 @@ function idleStatus() {
     remainingMs: 0,
     nextCaptureInMs: null,
     phoneCleanup: null,
+    phase: null,
+    phaseMessage: null,
   };
 }
 
 function getBaseStatus() {
-  if (!session) return idleStatus();
+  if (!session) {
+    const idle = idleStatus();
+    if (pendingPhase) {
+      return {
+        ...idle,
+        status: 'starting',
+        phase: pendingPhase,
+        phaseMessage: pendingPhaseMessage,
+      };
+    }
+    return idle;
+  }
 
   const now = Date.now();
   const startedAtMs = session.startedAt ? Date.parse(session.startedAt) : now;
@@ -161,6 +191,8 @@ function getBaseStatus() {
 
   return {
     ...getPublicSession(),
+    phase: session.phase ?? pendingPhase,
+    phaseMessage: session.phaseMessage ?? pendingPhaseMessage,
     elapsedMs,
     remainingMs,
     nextCaptureInMs,
@@ -296,7 +328,7 @@ function remainingVideoSeconds(activeSession) {
 }
 
 async function startNextVideoSegment() {
-  if (!session || session.status !== 'recording' || session.mode !== MODE_VIDEO) {
+  if (!session || (session.status !== 'recording' && session.status !== 'starting') || session.mode !== MODE_VIDEO) {
     return;
   }
 
@@ -390,10 +422,11 @@ async function finalizeRecording(reason) {
     const activeSession = session;
     const terminalStatus = reason === 'too_many_failures' ? 'error' : 'stopped';
 
-    activeSession.status = terminalStatus;
+    activeSession.status = 'stopping';
     activeSession.stoppedAt = activeSession.stoppedAt || new Date().toISOString();
     activeSession.stopReason = reason;
     clearTimers();
+    setPhase('stopping', 'Stopping recording…');
 
     console.log(
       `[recording] finalizing (${reason}, mode=${activeSession.mode}, `
@@ -402,9 +435,11 @@ async function finalizeRecording(reason) {
 
     if (activeSession.mode === MODE_VIDEO) {
       try {
+        setPhase('stopping_recorder', 'Stopping phone screen recorder…');
         const stoppedHandle = await stopActiveScreenRecord();
         if (stoppedHandle?.remotePath) {
           try {
+            setPhase('pulling_video', 'Downloading video from phone…');
             await pullVideoSegment(
               activeSession,
               stoppedHandle.remotePath,
@@ -421,6 +456,7 @@ async function finalizeRecording(reason) {
           const expectedFile = `video_${String(i + 1).padStart(3, '0')}.mp4`;
           if (pulledFiles.has(expectedFile)) continue;
           try {
+            setPhase('pulling_video', `Downloading video clip ${i + 1} from phone…`);
             await pullVideoSegment(activeSession, remotes[i], i + 1);
           } catch (err) {
             console.error('[recording] final video pull failed:', err.message);
@@ -432,15 +468,20 @@ async function finalizeRecording(reason) {
         activeSession.lastError = activeSession.lastError || err.message;
       }
     } else {
+      setPhase('waiting_capture', 'Waiting for in-progress photo to finish…');
       await waitForCaptureInFlight();
     }
 
+    setPhase('cleaning_phone', 'Cleaning up phone files and turning screen off…');
     activeSession.phoneCleanup = await runPhoneCleanup(activeSession);
 
     console.log(
       `[recording] phone cleanup: deleted ${activeSession.phoneCleanup.deletedCount}, `
       + `screen closed: ${activeSession.phoneCleanup.screenClosed}`,
     );
+
+    activeSession.status = terminalStatus;
+    clearPhase();
   })();
 
   try {
@@ -448,23 +489,29 @@ async function finalizeRecording(reason) {
   } finally {
     finalizePromise = null;
     screenRecordHandle = null;
+    if (session?.status === 'stopping') {
+      session.status = reason === 'too_many_failures' ? 'error' : 'stopped';
+      clearPhase();
+    }
   }
 
   return getStatus();
 }
 
 async function captureFrame() {
-  if (!session || session.status !== 'recording' || captureInFlight) {
+  if (!session || (session.status !== 'recording' && session.status !== 'starting') || captureInFlight) {
     return;
   }
   if (session.mode !== MODE_TIMELAPSE) return;
 
   captureInFlight = true;
   try {
-    const { file, localPath } = await takePhoto({
+    const { file, localPath, serial } = await takePhoto({
       device: session.device,
+      serial: session.deviceSerial || null,
       destDir: session.destDir,
     });
+    if (serial) session.deviceSerial = serial;
     const frame = buildMediaEntry(session.sessionId, file);
     session.frames.push(frame);
     session.framesCaptured += 1;
@@ -505,8 +552,11 @@ function scheduleCaptureLoop() {
 }
 
 async function startRecording({ mode, intervalSeconds, maxMinutes } = {}) {
-  if (session?.status === 'recording') {
+  if (session?.status === 'recording' || session?.status === 'starting') {
     throw new Error('A recording session is already in progress.');
+  }
+  if (session?.status === 'stopping') {
+    throw new Error('A recording is still stopping. Please wait.');
   }
 
   const recordingMode = parseMode(mode);
@@ -514,73 +564,108 @@ async function startRecording({ mode, intervalSeconds, maxMinutes } = {}) {
   const maxMins = parseMaxMinutes(maxMinutes);
   const intervalMs = interval * 1000;
   const maxDurationMs = maxMins * 60 * 1000;
-
-  await ensureConnected();
-
-  const activeDevice = getActiveDevice();
-  if (!activeDevice) {
-    throw new Error('No active device configured. Add and select a device in Phone Configuration.');
-  }
-
-  const sessionId = makeSessionId();
-  const destDir = path.join(RECORDINGS_DIR, sessionId);
-  await fs.mkdir(destDir, { recursive: true });
-
-  clearTimers();
-  captureInFlight = false;
-  finalizePromise = null;
-  screenRecordHandle = null;
-  videoSegmentChainPromise = null;
-
-  session = {
-    status: 'recording',
-    mode: recordingMode,
-    sessionId,
-    destDir,
-    device: activeDevice,
-    deviceId: activeDevice.id,
-    deviceName: activeDevice.name,
-    startedAt: new Date().toISOString(),
-    stoppedAt: null,
-    stopReason: null,
-    intervalSeconds: recordingMode === MODE_TIMELAPSE ? interval : null,
-    maxMinutes: maxMins,
-    intervalMs: recordingMode === MODE_TIMELAPSE ? intervalMs : null,
-    maxDurationMs,
-    framesCaptured: 0,
-    frames: [],
-    videos: [],
-    videoSegments: 0,
-    phoneFiles: [],
-    remoteVideoPaths: [],
-    lastError: null,
-    errors: [],
-    consecutiveFailures: 0,
-    phoneCleanup: null,
+  const startedMs = Date.now();
+  const mark = (label) => {
+    console.log(`[recording] start +${Date.now() - startedMs}ms: ${label}`);
   };
 
-  if (recordingMode === MODE_VIDEO) {
-    const serial = await ensureConnectedForDevice(activeDevice);
-    await preparePhoneForVideo(serial);
-    await startNextVideoSegment();
-  } else {
-    await captureFrame();
-    scheduleCaptureLoop();
-  }
+  setPhase('connecting', 'Connecting to phone…');
 
-  maxDurationTimer = setTimeout(() => {
-    if (session?.status === 'recording') {
-      finalizeRecording('max_duration').catch((err) => {
-        console.error('[recording] max duration finalize failed:', err.message);
-      });
+  try {
+    const serial = await ensureConnected();
+    mark('connected');
+
+    const activeDevice = getActiveDevice();
+    if (!activeDevice) {
+      throw new Error('No active device configured. Add and select a device in Phone Configuration.');
     }
-  }, maxDurationMs);
 
-  return getStatus();
+    setPhase('preparing', 'Preparing recording session…');
+    const sessionId = makeSessionId();
+    const destDir = path.join(RECORDINGS_DIR, sessionId);
+    await fs.mkdir(destDir, { recursive: true });
+
+    clearTimers();
+    captureInFlight = false;
+    finalizePromise = null;
+    screenRecordHandle = null;
+    videoSegmentChainPromise = null;
+
+    session = {
+      status: 'starting',
+      mode: recordingMode,
+      sessionId,
+      destDir,
+      device: activeDevice,
+      deviceSerial: serial,
+      deviceId: activeDevice.id,
+      deviceName: activeDevice.name,
+      startedAt: new Date().toISOString(),
+      stoppedAt: null,
+      stopReason: null,
+      intervalSeconds: recordingMode === MODE_TIMELAPSE ? interval : null,
+      maxMinutes: maxMins,
+      intervalMs: recordingMode === MODE_TIMELAPSE ? intervalMs : null,
+      maxDurationMs,
+      framesCaptured: 0,
+      frames: [],
+      videos: [],
+      videoSegments: 0,
+      phoneFiles: [],
+      remoteVideoPaths: [],
+      lastError: null,
+      errors: [],
+      consecutiveFailures: 0,
+      phoneCleanup: null,
+      phase: pendingPhase,
+      phaseMessage: pendingPhaseMessage,
+    };
+
+    if (recordingMode === MODE_VIDEO) {
+      setPhase('preparing_camera', 'Waking phone and opening camera…');
+      await preparePhoneForVideo(serial);
+      mark('camera prepared');
+      setPhase('starting_recorder', 'Starting screen recorder…');
+      await startNextVideoSegment();
+      mark('screenrecord started');
+    } else {
+      setPhase('first_capture', 'Taking first photo (camera warmup)…');
+      await captureFrame();
+      mark('first frame captured');
+      scheduleCaptureLoop();
+    }
+
+    session.status = 'recording';
+    clearPhase();
+    mark('ready');
+
+    maxDurationTimer = setTimeout(() => {
+      if (session?.status === 'recording') {
+        finalizeRecording('max_duration').catch((err) => {
+          console.error('[recording] max duration finalize failed:', err.message);
+        });
+      }
+    }, maxDurationMs);
+
+    return getStatus();
+  } catch (err) {
+    clearTimers();
+    if (session && (session.status === 'starting' || session.status === 'recording')) {
+      session.status = 'error';
+      session.lastError = err.message;
+      session.stoppedAt = new Date().toISOString();
+      session.stopReason = 'start_failed';
+    }
+    clearPhase();
+    throw err;
+  }
 }
 
 async function stopRecording() {
   if (!session || session.status !== 'recording') {
+    if (session?.status === 'stopping') {
+      return finalizeRecording(session.stopReason || 'manual');
+    }
     return getStatus();
   }
 

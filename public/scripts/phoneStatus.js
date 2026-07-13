@@ -228,7 +228,7 @@ function canDrawMetricChart(metric) {
   return healthHistory.length >= 2 && metricPointCount(metric) >= 2;
 }
 
-function baseChartOptions({ yMin = undefined, yMax = undefined, yTitle = '' } = {}) {
+function baseChartOptions({ yMin = undefined, yMax = undefined, yStep = undefined, yTitle = '' } = {}) {
   const { min, max, windowSec } = chartViewBounds();
   const stepSec = chartAxisStepSeconds(windowSec);
 
@@ -276,7 +276,10 @@ function baseChartOptions({ yMin = undefined, yMax = undefined, yTitle = '' } = 
         min: yMin,
         max: yMax,
         title: yTitle ? { display: true, text: yTitle, color: CHART_TEXT } : undefined,
-        ticks: { color: CHART_TEXT },
+        ticks: {
+          color: CHART_TEXT,
+          ...(yStep != null ? { stepSize: yStep } : {}),
+        },
         grid: { color: CHART_GRID },
       },
     },
@@ -342,24 +345,25 @@ function segmentColorForMetric(metric, value) {
 }
 
 function temperatureYScaleBounds() {
+  const TEMP_STEP = 5;
   const temps = healthHistory
     .map((point) => point.temp)
     .filter((value) => value != null && Number.isFinite(value));
-  if (!temps.length) return {};
+  if (!temps.length) return { yStep: TEMP_STEP };
 
   let yMin = Math.min(...temps);
   let yMax = Math.max(...temps);
 
   if (yMin === yMax) {
-    yMin -= 1;
-    yMax += 1;
-  } else {
-    const pad = Math.max(0.5, (yMax - yMin) * 0.08);
-    yMin -= pad;
-    yMax += pad;
+    yMin -= TEMP_STEP;
+    yMax += TEMP_STEP;
   }
 
-  return { yMin, yMax };
+  yMin = Math.floor(yMin / TEMP_STEP) * TEMP_STEP;
+  yMax = Math.ceil(yMax / TEMP_STEP) * TEMP_STEP;
+  if (yMax <= yMin) yMax = yMin + TEMP_STEP;
+
+  return { yMin, yMax, yStep: TEMP_STEP };
 }
 
 function buildMetricChartConfig(metric) {
@@ -453,9 +457,10 @@ function updateMetricChart(metric) {
     chart.options.scales.x.title.text = chartAxisTitle();
     chart.options.scales.x.ticks.stepSize = chartAxisStepSeconds(windowSec);
     if (metric === 'temperature') {
-      const { yMin, yMax } = temperatureYScaleBounds();
+      const { yMin, yMax, yStep } = temperatureYScaleBounds();
       chart.options.scales.y.min = yMin;
       chart.options.scales.y.max = yMax;
+      chart.options.scales.y.ticks.stepSize = yStep;
     }
     chart.update(chartPanState ? 'none' : undefined);
     canvas.parentElement?.classList.toggle('phone-status-chart-container--scrollable', chartCanScroll());

@@ -1955,6 +1955,37 @@
   color: var(--color-text-muted);
 }
 
+.recording-phase {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 1rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.5rem;
+  background: rgba(217, 119, 6, 0.1);
+  color: #92400e;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.recording-phase[hidden] {
+  display: none;
+}
+
+.recording-phase-spinner {
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 2px solid rgba(146, 64, 14, 0.25);
+  border-top-color: #b45309;
+  border-radius: 50%;
+  animation: recording-phase-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes recording-phase-spin {
+  to { transform: rotate(360deg); }
+}
+
 .recording-inline-error {
   margin: 0 0 0.5rem;
   font-size: 0.875rem;
