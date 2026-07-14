@@ -21,6 +21,7 @@ const {
 const { getSettings } = require('./db/settingsStore');
 const { generateVideoThumbnail } = require('./utils/videoThumb');
 const { downsampleVideoToFps, normalizeVideoTargetFps } = require('./utils/videoFps');
+const { readVideoMeta, writeVideoMeta } = require('./utils/videoMeta');
 
 const ROOT = path.join(__dirname, '..');
 const DATA_DIR = path.join(ROOT, 'data');
@@ -313,6 +314,21 @@ async function pullVideoSegment(activeSession, remotePath, segmentIndex) {
         /* ignore */
       }
       throw new Error(message);
+    }
+
+    // Lock capture time on first successful pull (mtime at pull ≈ capture).
+    try {
+      const existingMeta = await readVideoMeta(localPath);
+      if (!existingMeta?.capturedAt) {
+        const pulledStat = await fs.stat(localPath);
+        await writeVideoMeta(localPath, {
+          capturedAt: pulledStat.mtime.toISOString(),
+          sessionId: activeSession.sessionId,
+          segmentIndex,
+        });
+      }
+    } catch (err) {
+      console.warn(`[recording] could not write capture meta for ${file}:`, err.message);
     }
 
     const targetFps = normalizeVideoTargetFps(

@@ -11,7 +11,10 @@ const {
   ALLOWED_VIDEO_TARGET_FPS,
   normalizeVideoTargetFps,
   probeVideoFps,
-  downsampleVideoToFps,
+  probeVideoMeta,
+  startFpsDownsampleJob,
+  getFpsJob,
+  publicJobView,
 } = require('../utils/videoFps');
 
 const router = express.Router();
@@ -255,47 +258,78 @@ router.post('/files/video-fps', async (req, res) => {
       });
     }
 
-    const result = await downsampleVideoToFps(resolved, fps);
-    if (result.skipped) {
+    let currentFps = null;
+    try {
+      currentFps = (await probeVideoMeta(resolved)).fps;
+    } catch {
+      currentFps = null;
+    }
+    if (currentFps != null && currentFps <= fps + 0.05) {
       const stat = fs.statSync(resolved);
-      videoFpsCache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, fps: result.fps });
+      videoFpsCache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, fps: currentFps });
       return res.json({
         success: true,
         changed: false,
         skipped: true,
         path: filePath,
-        fps: result.fps,
+        fps: currentFps,
         size: stat.size,
-        message: `Clip is already at ${result.fps} fps or lower.`,
+        message: `Clip is already at ${currentFps} fps or lower.`,
       });
     }
 
-    try {
-      await generateVideoThumbnail(resolved, { force: true });
-    } catch (err) {
-      console.warn(`[files] video thumb refresh failed for ${filePath}:`, err.message);
-    }
+    const jobId = startFpsDownsampleJob({
+      absolutePath: resolved,
+      targetFps: fps,
+      finish: async (downsample) => {
+        try {
+          await generateVideoThumbnail(resolved, { force: true });
+        } catch (err) {
+          console.warn(`[files] video thumb refresh failed for ${filePath}:`, err.message);
+        }
 
-    const stat = fs.statSync(resolved);
-    const probed = result.changed ? fps : await resolveVideoFps(resolved, filePath);
-    videoFpsCache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, fps: probed });
+        const stat = fs.statSync(resolved);
+        const probed = downsample.changed ? fps : await resolveVideoFps(resolved, filePath);
+        videoFpsCache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, fps: probed });
 
-    const thumbRel = thumbPathForVideo(filePath).split(path.sep).join('/');
-    const absThumb = path.join(DATA_DIR, thumbRel);
+        const thumbRel = thumbPathForVideo(filePath).split(path.sep).join('/');
+        const absThumb = path.join(DATA_DIR, thumbRel);
 
-    res.json({
+        return {
+          success: true,
+          changed: !!downsample.changed,
+          skipped: !!downsample.skipped,
+          path: filePath,
+          fps: probed,
+          previousFps: downsample.previousFps ?? null,
+          size: stat.size,
+          // Capture time is canonical; never report re-encode mtime as capture.
+          modified: downsample.capturedAt || downsample.modified || stat.mtime.toISOString(),
+          capturedAt: downsample.capturedAt || downsample.modified || stat.mtime.toISOString(),
+          postprocessedAt: downsample.postprocessedAt || null,
+          thumbPath: fs.existsSync(absThumb) ? thumbRel : null,
+        };
+      },
+    });
+
+    res.status(202).json({
       success: true,
-      changed: !!result.changed,
+      async: true,
+      jobId,
       path: filePath,
-      fps: probed,
-      previousFps: result.previousFps ?? null,
-      size: stat.size,
-      modified: stat.mtime.toISOString(),
-      thumbPath: fs.existsSync(absThumb) ? thumbRel : null,
+      targetFps: fps,
     });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to reduce video FPS' });
   }
+});
+
+router.get('/files/video-fps/jobs/:jobId', (req, res) => {
+  const job = getFpsJob(req.params.jobId);
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found' });
+  }
+  res.json(publicJobView(job));
 });
 
 router.get('/file/*filepath', (req, res) => {

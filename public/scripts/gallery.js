@@ -203,6 +203,10 @@ function renderVideoFpsPanel(clip, { idPrefix = 'gallery-video' } = {}) {
           Apply
         </button>
       </div>
+      <div class="gallery-video-fps-progress" hidden>
+        <div class="progress-bar"><div class="progress-bar-fill gallery-video-fps-progress-fill" style="width: 0%"></div></div>
+        <p class="gallery-video-fps-progress-text">Starting…</p>
+      </div>
       <p class="gallery-video-fps-hint">Re-encodes this clip in place. Duration stays the same.</p>
     </div>`;
 }
@@ -227,6 +231,66 @@ function updateVideoFileMeta(filePath, patch) {
   });
 }
 
+function formatEta(seconds) {
+  const s = Math.max(0, Math.round(Number(seconds) || 0));
+  if (s < 1) return 'almost done';
+  if (s < 60) return `~${s}s left`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem ? `~${m}m ${rem}s left` : `~${m}m left`;
+}
+
+function setFpsProgress(panel, { hidden = false, percent = 0, text = '' } = {}) {
+  const wrap = panel?.querySelector('.gallery-video-fps-progress');
+  const fill = panel?.querySelector('.gallery-video-fps-progress-fill');
+  const label = panel?.querySelector('.gallery-video-fps-progress-text');
+  if (!wrap) return;
+  wrap.hidden = hidden;
+  if (fill) fill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+  if (label) label.textContent = text || '';
+}
+
+async function pollFpsJob(jobId, { onProgress = null, intervalMs = 400 } = {}) {
+  for (;;) {
+    let job;
+    try {
+      job = await apiFetch(`/api/files/video-fps/jobs/${encodeURIComponent(jobId)}`);
+    } catch (err) {
+      const msg = String(err?.message || '');
+      if (/not found/i.test(msg)) {
+        throw new Error(
+          'Encode was interrupted (server restarted or job lost). The clip was not changed — try Apply again.',
+        );
+      }
+      throw err;
+    }
+    onProgress?.(job);
+    if (job.status === 'done') {
+      if (!job.result) {
+        throw new Error('Encode finished but returned no result. The clip may not have changed — try Apply again.');
+      }
+      return job.result;
+    }
+    if (job.status === 'error') {
+      throw new Error(job.error || 'FPS postprocess failed');
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
+function releaseVideoElement(videoEl) {
+  if (!videoEl) return { wasPaused: true, t: 0 };
+  const wasPaused = videoEl.paused;
+  const t = videoEl.currentTime || 0;
+  try { videoEl.pause?.(); } catch { /* ignore */ }
+  // Drop the HTTP media handle so Windows can replace the file after encode.
+  try {
+    videoEl.removeAttribute('src');
+    videoEl.load?.();
+  } catch { /* ignore */ }
+  return { wasPaused, t };
+}
+
 async function applyVideoFpsDownsample(clipPath, targetFps, {
   videoEl = null,
   panel = null,
@@ -238,28 +302,63 @@ async function applyVideoFpsDownsample(clipPath, targetFps, {
   const select = panel?.querySelector('.gallery-video-fps-select');
   if (applyBtn) applyBtn.disabled = true;
   if (select) select.disabled = true;
+  setFpsProgress(panel, { hidden: false, percent: 0, text: 'Starting encode…' });
+
+  const playback = releaseVideoElement(videoEl);
 
   try {
-    const result = await apiFetch('/api/files/video-fps', {
+    const start = await apiFetch('/api/files/video-fps', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: clipPath, targetFps }),
     });
 
+    let result = start;
+    if (start.async && start.jobId) {
+      result = await pollFpsJob(start.jobId, {
+        onProgress: (job) => {
+          const pct = Number.isFinite(Number(job.percent)) ? Number(job.percent) : 0;
+          const eta = Number.isFinite(Number(job.etaSec)) ? formatEta(job.etaSec) : 'estimating…';
+          const pctLabel = Number.isFinite(Number(job.percent))
+            ? `${Math.round(pct)}%`
+            : 'encoding';
+          // ffmpeg hits 100% before the file replace finishes — keep that distinction.
+          const phase = job.percent >= 100 && job.status === 'running'
+            ? 'finishing…'
+            : `${pctLabel} · ${eta}`;
+          setFpsProgress(panel, {
+            hidden: false,
+            percent: pct,
+            text: phase,
+          });
+        },
+      });
+    }
+
+    if (!result?.skipped && !result?.changed && result?.fps == null) {
+      throw new Error('Encode did not update the clip. Try Apply again.');
+    }
+
+    setFpsProgress(panel, {
+      hidden: false,
+      percent: 100,
+      text: result?.skipped ? 'Already at target FPS' : 'Done',
+    });
+
     updateVideoFileMeta(clipPath, {
       fps: result.fps,
       size: result.size,
-      modified: result.modified || new Date().toISOString(),
+      modified: result.capturedAt || result.modified || new Date().toISOString(),
+      capturedAt: result.capturedAt || result.modified,
+      postprocessedAt: result.postprocessedAt || undefined,
       thumbPath: result.thumbPath ?? undefined,
     });
 
     if (videoEl) {
-      const wasPaused = videoEl.paused;
-      const t = videoEl.currentTime || 0;
       videoEl.src = `${fileApiUrl(clipPath)}?t=${Date.now()}`;
       videoEl.addEventListener('loadedmetadata', () => {
-        try { videoEl.currentTime = Math.min(t, videoEl.duration || t); } catch { /* ignore */ }
-        if (!wasPaused) videoEl.play?.();
+        try { videoEl.currentTime = Math.min(playback.t, videoEl.duration || playback.t); } catch { /* ignore */ }
+        if (!playback.wasPaused) videoEl.play?.();
       }, { once: true });
     }
 
@@ -271,16 +370,26 @@ async function applyVideoFpsDownsample(clipPath, targetFps, {
         : `Reduced clip to ${formatFps(result.fps)}`,
       result.skipped ? 'info' : 'success',
     );
+    setTimeout(() => setFpsProgress(panel, { hidden: true }), 1200);
     return result;
   } catch (err) {
+    // Restore playback from the original path if encode aborted.
+    if (videoEl && !videoEl.getAttribute('src')) {
+      videoEl.src = `${fileApiUrl(clipPath)}?t=${Date.now()}`;
+    }
     showToast(err.message, 'error');
+    setFpsProgress(panel, { hidden: true });
     if (applyBtn) applyBtn.disabled = false;
     if (select) select.disabled = false;
     return null;
   }
 }
 
-function bindVideoFpsPanel(root, getClip, { videoEl = null, onUpdated = null } = {}) {
+function bindVideoFpsPanel(root, getClip, {
+  videoEl = null,
+  getVideoEl = null,
+  onUpdated = null,
+} = {}) {
   const panel = root.querySelector('.gallery-video-fps-panel');
   if (!panel) return;
 
@@ -289,8 +398,9 @@ function bindVideoFpsPanel(root, getClip, { videoEl = null, onUpdated = null } =
     const select = panel.querySelector('.gallery-video-fps-select');
     const targetFps = Number(select?.value) || 0;
     if (!clip?.path || !targetFps) return;
+    const el = (typeof getVideoEl === 'function' ? getVideoEl() : null) || videoEl;
     await applyVideoFpsDownsample(clip.path, targetFps, {
-      videoEl,
+      videoEl: el,
       panel,
       onUpdated: (result) => {
         refreshVideoFpsPanel(panel, { ...clip, fps: result.fps, size: result.size });
@@ -906,7 +1016,7 @@ function openLightbox(index) {
     <aside class="lightbox-sidebar glass">
       <div class="lightbox-sidebar-header">
         <h3>${file.name}</h3>
-        <p class="lightbox-file-meta">${formatBytes(file.size)} · ${formatDate(file.modified)}${file.type === 'video' && file.fps != null ? ` · ${formatFps(file.fps)}` : ''}</p>
+        <p class="lightbox-file-meta">${formatBytes(file.size)} · ${formatDate(file.capturedAt || file.modified)}${file.type === 'video' && file.fps != null ? ` · ${formatFps(file.fps)}` : ''}${file.postprocessedAt ? ` · post ${formatDate(file.postprocessedAt)}` : ''}</p>
         <button type="button" class="btn btn-danger btn-sm lightbox-trash-btn" data-trash-path="${file.path || file.name}" data-trash-label="${file.name.replace(/"/g, '&quot;')}">Move to trash</button>
       </div>
       ${file.type === 'video' ? renderVideoFpsPanel(file, { idPrefix: 'gallery-clip' }) : ''}
@@ -944,7 +1054,9 @@ function openLightbox(index) {
       onUpdated: (result) => {
         const meta = lb.querySelector('.lightbox-file-meta');
         if (meta) {
-          meta.textContent = `${formatBytes(result.size ?? file.size)} · ${formatDate(file.modified)} · ${formatFps(result.fps)}`;
+          const capture = file.capturedAt || file.modified;
+          const post = file.postprocessedAt ? ` · post ${formatDate(file.postprocessedAt)}` : '';
+          meta.textContent = `${formatBytes(result.size ?? file.size)} · ${formatDate(capture)}${post} · ${formatFps(result.fps)}`;
         }
         if ((appSettings.videoZones || []).length) {
           drawLightboxVideoZones(lb, file);
@@ -1066,13 +1178,18 @@ function openVideoRecordingLightbox(index) {
   });
 
   bindVideoFpsPanel(lb, () => videos[clipIndex], {
-    videoEl: getVideoEl(),
-    onUpdated: () => {
+    // Always resolve the live <video> — clip switching reuses the same node.
+    getVideoEl,
+    onUpdated: (result) => {
       const pickBtns = lb.querySelectorAll('.recording-video-pick');
       const btn = pickBtns[clipIndex];
       if (btn) {
         const clip = videos[clipIndex];
         btn.textContent = formatClipPickLabel(clip, clipIndex);
+      }
+      // Keep recording card size in sync after a clip shrinks.
+      if (result?.size != null) {
+        file.size = videos.reduce((sum, v) => sum + (v.size || 0), 0);
       }
       const meta = lb.querySelector('.lightbox-recording-meta');
       if (meta) {

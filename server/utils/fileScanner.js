@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const { isVideoMetaName } = require('./videoMeta');
+const { isVideoThumbName } = require('./videoThumb');
 
 const SUPPORTED_EXTENSIONS = new Set([
   '.jpg', '.jpeg', '.png', '.webp', '.mp4', '.mov',
@@ -34,19 +36,43 @@ function scanDirectory(dir, baseDir = dir) {
 
     const ext = path.extname(entry.name).toLowerCase();
     if (!SUPPORTED_EXTENSIONS.has(ext)) continue;
-    // Sidecar posters generated for gallery video cards — not standalone gallery items.
-    if (/\.thumb\.(jpe?g|png|webp)$/i.test(entry.name)) continue;
+    // Sidecar posters / metadata — not standalone gallery items.
+    if (isVideoThumbName(entry.name) || isVideoMetaName(entry.name)) continue;
 
     const stat = fs.statSync(fullPath);
-    const relativePath = path.relative(baseDir, fullPath);
+    const relativePath = path.relative(baseDir, fullPath).split(path.sep).join('/');
 
-    results.push({
+    const item = {
       name: entry.name,
-      path: relativePath.split(path.sep).join('/'),
+      path: relativePath,
       type: getFileType(ext),
       size: stat.size,
       modified: stat.mtime.toISOString(),
-    });
+    };
+
+    if (item.type === 'video') {
+      // Prefer sidecar capturedAt so display/sort stay correct even if mtime drifts.
+      try {
+        const metaPath = fullPath.replace(/\.(mp4|mov)$/i, '.meta.json');
+        if (fs.existsSync(metaPath)) {
+          const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+          if (meta?.capturedAt) {
+            item.capturedAt = meta.capturedAt;
+            item.modified = meta.capturedAt;
+          }
+          if (meta?.postprocessedAt) {
+            item.postprocessedAt = meta.postprocessedAt;
+          }
+        }
+      } catch {
+        /* ignore corrupt sidecar */
+      }
+      if (!item.capturedAt) {
+        item.capturedAt = item.modified;
+      }
+    }
+
+    results.push(item);
   }
 
   return results.sort((a, b) => new Date(b.modified) - new Date(a.modified));
