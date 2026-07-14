@@ -6,7 +6,7 @@ const PROCESSING_FOCUS_KEY = 'processingFocus';
 
 let files = [];
 let results = {};
-let appSettings = { zones: [] };
+let appSettings = { zones: [], videoZones: [] };
 let processing = new Set();
 
 const container = () => document.getElementById('processing-content');
@@ -48,33 +48,57 @@ function statusBadge(status) {
   return map[status] || map.unprocessed;
 }
 
-function render() {
-  const imageFiles = files.filter((f) => f.type === 'image');
+function zonesForFile(file) {
+  if (file?.type === 'video') {
+    return {
+      zones: appSettings.videoZones || [],
+      orientationDeg: appSettings.referenceVideoOrientation,
+      mediaType: 'video',
+    };
+  }
+  return {
+    zones: appSettings.zones || [],
+    orientationDeg: appSettings.referenceOrientation,
+    mediaType: 'image',
+  };
+}
 
-  if (imageFiles.length === 0) {
+function render() {
+  const mediaFiles = files.filter((f) => f.type === 'image' || f.type === 'video');
+
+  if (mediaFiles.length === 0) {
     container().innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon">⚡</div>
-        <h3>No images to process</h3>
-        <p>Add meal photos to the data/ folder first.</p>
+        <h3>No media to process</h3>
+        <p>Add meal photos or videos to the data/ folder first.</p>
       </div>`;
     return;
   }
 
-  const doneCount = imageFiles.filter((f) => getResultForFileKey(getFileKey(f))).length;
-  const zoneCount = appSettings.zones?.length || 0;
+  const doneCount = mediaFiles.filter((f) => getResultForFileKey(getFileKey(f))).length;
+  const photoZoneCount = appSettings.zones?.length || 0;
+  const videoZoneCount = appSettings.videoZones?.length || 0;
 
   container().innerHTML = `
-    ${zoneCount ? `
+    ${photoZoneCount || videoZoneCount ? `
       <div class="card zone-config-banner" style="padding: 1rem; margin-bottom: 0;">
         <p style="font-size: 0.875rem; margin: 0;">
-          <strong>${zoneCount} zone${zoneCount === 1 ? '' : 's'}</strong> configured.
-          Each photo is cropped per zone and analyzed with a <strong>separate API call</strong> per zone.
-          Results list visible foods with estimated weights (USDA lookup planned).
+          ${photoZoneCount ? `<strong>${photoZoneCount} photo zone${photoZoneCount === 1 ? '' : 's'}</strong>` : ''}
+          ${photoZoneCount && videoZoneCount ? ' · ' : ''}
+          ${videoZoneCount ? `<strong>${videoZoneCount} video zone${videoZoneCount === 1 ? '' : 's'}</strong>` : ''}
+          configured.
+          Each media file is cropped with its modality’s zones and analyzed with a <strong>separate API call</strong> per zone.
+          Videos are analyzed from a still frame at 0.5s.
         </p>
-        <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0.35rem 0 0;">
-          ${appSettings.zones.map((z) => z.name).join(' · ')}
-        </p>
+        ${photoZoneCount ? `
+          <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0.35rem 0 0;">
+            Photos: ${appSettings.zones.map((z) => z.name).join(' · ')}
+          </p>` : ''}
+        ${videoZoneCount ? `
+          <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0.35rem 0 0;">
+            Videos: ${appSettings.videoZones.map((z) => z.name).join(' · ')}
+          </p>` : ''}
       </div>
     ` : ''}
     <div class="card" style="padding: 1rem;">
@@ -89,7 +113,7 @@ function render() {
     </div>
     <div class="processing-actions">
       <button class="btn btn-primary" id="process-all-btn" ${processing.size > 0 ? 'disabled' : ''}>
-        Process All (${imageFiles.length - doneCount} remaining)
+        Process All (${mediaFiles.length - doneCount} remaining)
       </button>
       <div id="batch-progress" class="hidden" style="flex: 1; max-width: 300px;">
         <div class="progress-bar"><div class="progress-bar-fill" id="progress-fill" style="width: 0%"></div></div>
@@ -97,14 +121,17 @@ function render() {
       </div>
     </div>
     <div class="processing-list" id="processing-list">
-      ${imageFiles.map((file) => {
+      ${mediaFiles.map((file) => {
         const fileKey = getFileKey(file);
         const status = getStatus(fileKey);
         const displayName = file.path?.includes('/') ? file.path : file.name;
+        const typeBadge = file.type === 'video'
+          ? '<span class="badge badge-muted">Video</span>'
+          : '';
         return `
           <div class="card processing-row" data-file="${fileKey.replace(/"/g, '&quot;')}">
             <div class="processing-row-info">
-              <div class="processing-row-name">${displayName}</div>
+              <div class="processing-row-name">${displayName} ${typeBadge}</div>
               <div class="processing-row-meta">${formatBytes(file.size)} · ${formatDate(file.modified)}</div>
             </div>
             <span class="status-badge">${statusBadge(status)}</span>
@@ -190,13 +217,15 @@ async function processFile(fileKey) {
 
   const file = findFileRecord(fileKey);
   const filename = getFileKey(file) || fileKey;
-  const confirmed = await confirmZoneProcessing({
+  const { zones, orientationDeg, mediaType } = zonesForFile(file);
+  const pick = await confirmZoneProcessing({
     filename: file?.name || filename.split('/').pop(),
     filePath: filename,
-    zones: appSettings.zones,
-    orientationDeg: appSettings.referenceOrientation,
+    zones,
+    orientationDeg,
+    mediaType,
   });
-  if (!confirmed) return;
+  if (!pick?.confirmed) return;
 
   if (getResultForFileKey(fileKey)) {
     await clearCache(fileKey, false);
@@ -208,12 +237,24 @@ async function processFile(fileKey) {
   const userContext = getUserContext();
 
   try {
+    const body = {
+      filename,
+      userContext: userContext || undefined,
+    };
+    if (mediaType === 'video' && Number.isFinite(Number(pick.frameTimeSec))) {
+      body.frameTimeSec = Number(pick.frameTimeSec);
+    }
     const data = await apiFetch('/api/process', {
       method: 'POST',
-      body: JSON.stringify({ filename, userContext: userContext || undefined }),
+      body: JSON.stringify(body),
     });
     results[filename] = data.result;
-    showToast(`${file?.name || filename} processed successfully`, 'success');
+    showToast(
+      mediaType === 'video'
+        ? `${file?.name || filename} processed (frame ${Number(pick.frameTimeSec || 0).toFixed(1)}s)`
+        : `${file?.name || filename} processed successfully`,
+      'success',
+    );
     showSummary(data.result);
   } catch (err) {
     updateRowStatus(fileKey, 'error');
@@ -243,9 +284,11 @@ async function clearCache(fileKey, reRender = true) {
 }
 
 async function processAll() {
-  const imageFiles = files.filter((f) => f.type === 'image' && !getResultForFileKey(getFileKey(f)));
-  if (imageFiles.length === 0) {
-    showToast('All images already processed', 'info');
+  const mediaFiles = files.filter(
+    (f) => (f.type === 'image' || f.type === 'video') && !getResultForFileKey(getFileKey(f)),
+  );
+  if (mediaFiles.length === 0) {
+    showToast('All media already processed', 'info');
     return;
   }
 
@@ -257,18 +300,20 @@ async function processAll() {
   document.getElementById('process-all-btn').disabled = true;
 
   let completed = 0;
-  const total = imageFiles.length;
+  const total = mediaFiles.length;
   let lastResult = null;
 
-  for (const file of imageFiles) {
+  for (const file of mediaFiles) {
     const fileKey = getFileKey(file);
-    const confirmed = await confirmZoneProcessing({
+    const { zones, orientationDeg, mediaType } = zonesForFile(file);
+    const pick = await confirmZoneProcessing({
       filename: file.name,
       filePath: fileKey,
-      zones: appSettings.zones,
-      orientationDeg: appSettings.referenceOrientation,
+      zones,
+      orientationDeg,
+      mediaType,
     });
-    if (!confirmed) {
+    if (!pick?.confirmed) {
       showToast('Batch processing cancelled', 'info');
       break;
     }
@@ -277,9 +322,16 @@ async function processAll() {
     updateRowStatus(fileKey, 'processing');
 
     try {
+      const body = {
+        filename: fileKey,
+        userContext: userContext || undefined,
+      };
+      if (mediaType === 'video' && Number.isFinite(Number(pick.frameTimeSec))) {
+        body.frameTimeSec = Number(pick.frameTimeSec);
+      }
       const data = await apiFetch('/api/process', {
         method: 'POST',
-        body: JSON.stringify({ filename: fileKey, userContext: userContext || undefined }),
+        body: JSON.stringify(body),
       });
       results[fileKey] = data.result;
       lastResult = data.result;

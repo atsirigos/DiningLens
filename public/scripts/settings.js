@@ -242,6 +242,10 @@ async function saveSettings() {
     const payload = {
       zones: settings.zones,
       referenceImage: settings.referenceImage,
+      referenceOrientation: settings.referenceOrientation,
+      videoZones: settings.videoZones,
+      referenceVideo: settings.referenceVideo,
+      referenceVideoOrientation: settings.referenceVideoOrientation,
       ai: {
         provider: document.getElementById('ai-provider')?.value || settings.ai?.provider || 'google',
         model: document.getElementById('ai-model')?.value || settings.ai?.model || 'gemini-2.5-flash',

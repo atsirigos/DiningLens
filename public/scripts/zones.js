@@ -6,8 +6,12 @@ import {
   normalizeOrientation,
 } from './zoneGeometry.js';
 
+const MODE_PHOTO = 'photo';
+const MODE_VIDEO = 'video';
+
 let settings = {};
 let files = [];
+let editorMode = MODE_PHOTO;
 let canvas, ctx, img;
 let drawing = false;
 let startX, startY;
@@ -42,30 +46,86 @@ function fileLabel(f) {
   return f.path && f.path !== f.name ? f.path : f.name;
 }
 
-function resolveReferenceImage(savedRef, imageFiles) {
+function isVideoMode() {
+  return editorMode === MODE_VIDEO;
+}
+
+function getActiveZones() {
+  return isVideoMode() ? (settings.videoZones || []) : (settings.zones || []);
+}
+
+function setActiveZones(zones) {
+  if (isVideoMode()) settings.videoZones = zones;
+  else settings.zones = zones;
+}
+
+function getReference() {
+  return isVideoMode() ? settings.referenceVideo : settings.referenceImage;
+}
+
+function setReference(value) {
+  if (isVideoMode()) settings.referenceVideo = value;
+  else settings.referenceImage = value;
+}
+
+function getStoredOrientation() {
+  return isVideoMode()
+    ? settings.referenceVideoOrientation
+    : settings.referenceOrientation;
+}
+
+function setStoredOrientation(value) {
+  if (isVideoMode()) settings.referenceVideoOrientation = value;
+  else settings.referenceOrientation = value;
+}
+
+function resolveReferenceMedia(savedRef, mediaFiles) {
   if (!savedRef) return null;
-  const exact = imageFiles.find((f) => fileRef(f) === savedRef);
+  const exact = mediaFiles.find((f) => fileRef(f) === savedRef);
   if (exact) return fileRef(exact);
-  const byName = imageFiles.filter((f) => f.name === savedRef);
+  const byName = mediaFiles.filter((f) => f.name === savedRef);
   if (byName.length === 1) return fileRef(byName[0]);
   return null;
 }
 
+function mediaFilesForMode() {
+  return files.filter((f) => f.type === (isVideoMode() ? 'video' : 'image'));
+}
+
+function syncPanelHeader() {
+  const panel = document.getElementById('panel-zones');
+  const sub = panel?.querySelector('.panel-header p');
+  if (!sub) return;
+  sub.textContent = isVideoMode()
+    ? 'Define zones on a reference video frame — the same layout applies to every video from this camera'
+    : 'Define zones on a reference photo — the same layout applies to every photo from this camera';
+}
+
 function render() {
+  const mediaFiles = mediaFilesForMode();
+  const reference = getReference();
+  const zones = getActiveZones();
+  const mediaNoun = isVideoMode() ? 'videos' : 'photos';
+  const mediaSingular = isVideoMode() ? 'video' : 'image';
+
   container().innerHTML = `
     <div class="settings-grid">
       <div class="card">
         <h3>Zone Editor</h3>
+        <div class="toggle-group zone-modality-toggle" id="zone-modality-toggle" style="margin-top: 1rem;">
+          <button type="button" data-mode="${MODE_PHOTO}" class="${editorMode === MODE_PHOTO ? 'active' : ''}">Photos</button>
+          <button type="button" data-mode="${MODE_VIDEO}" class="${editorMode === MODE_VIDEO ? 'active' : ''}">Videos</button>
+        </div>
         <div class="form-group" style="margin-top: 1rem;">
-          <label for="ref-image-select">Reference Image</label>
-          <select id="ref-image-select">
-            <option value="">Select an image...</option>
-            ${files.filter((f) => f.type === 'image').map((f) => `
-              <option value="${fileRef(f)}" ${settings.referenceImage === fileRef(f) ? 'selected' : ''}>${fileLabel(f)}</option>
+          <label for="ref-media-select">${isVideoMode() ? 'Reference Video' : 'Reference Image'}</label>
+          <select id="ref-media-select">
+            <option value="">Select a ${mediaSingular}...</option>
+            ${mediaFiles.map((f) => `
+              <option value="${fileRef(f)}" ${reference === fileRef(f) ? 'selected' : ''}>${fileLabel(f)}</option>
             `).join('')}
           </select>
         </div>
-        <div class="zone-editor-toolbar" id="zone-editor-toolbar" style="margin-top: 0.75rem; ${settings.referenceImage ? '' : 'display:none;'}">
+        <div class="zone-editor-toolbar" id="zone-editor-toolbar" style="margin-top: 0.75rem; ${reference ? '' : 'display:none;'}">
           <div class="zone-toolbar-group">
             <span class="zone-toolbar-label">View</span>
             <button type="button" class="btn btn-ghost btn-sm" id="zone-zoom-out" title="Zoom out">−</button>
@@ -83,30 +143,33 @@ function render() {
             <button type="button" class="btn btn-ghost btn-sm" id="zone-clear-all" title="Remove all zones">Clear zones</button>
           </div>
         </div>
-        <div class="zone-canvas-wrap" id="canvas-wrap" style="margin-top: 0.75rem; ${settings.referenceImage ? '' : 'display:none;'}">
+        <div class="zone-canvas-wrap" id="canvas-wrap" style="margin-top: 0.75rem; ${reference ? '' : 'display:none;'}">
           <canvas id="zone-canvas"></canvas>
         </div>
-        <p class="zone-editor-hint" style="margin-top: 0.75rem; font-size: 0.875rem; color: var(--color-text-muted); ${settings.referenceImage ? '' : 'display:none;'}" id="zone-editor-hint">
+        <p class="zone-editor-hint" style="margin-top: 0.75rem; font-size: 0.875rem; color: var(--color-text-muted); ${reference ? '' : 'display:none;'}" id="zone-editor-hint">
           Click and drag to draw a zone. Scroll to zoom, hold <kbd>Space</kbd> and drag to pan.
-          Saved zones use the same coordinates for <strong>all photos</strong>.
+          ${isVideoMode()
+    ? 'The still is taken at 0.5s into the clip. Saved zones use the same coordinates for <strong>all videos</strong>.'
+    : 'Saved zones use the same coordinates for <strong>all photos</strong>.'}
         </p>
       </div>
 
       <div class="card">
-        <h3>Zones</h3>
+        <h3>${isVideoMode() ? 'Video Zones' : 'Photo Zones'}</h3>
         <p style="margin-top: 0.35rem; font-size: 0.875rem; color: var(--color-text-muted);">
-          These zones apply to every image when processing and in the gallery overlay — not only the reference photo.
+          These zones apply only to ${mediaNoun} when processing and in the gallery overlay — not to ${isVideoMode() ? 'photos' : 'videos'}.
         </p>
         <ul class="zone-list" id="zone-list" style="margin-top: 1rem;"></ul>
-        <button class="btn btn-primary" id="save-zones-btn" style="margin-top: 1.5rem;">Save Zones</button>
+        <button class="btn btn-primary" id="save-zones-btn" style="margin-top: 1.5rem;">Save ${isVideoMode() ? 'Video' : 'Photo'} Zones</button>
       </div>
     </div>`;
 
+  syncPanelHeader();
   renderZoneList();
   bindEvents();
 
-  if (settings.referenceImage) {
-    loadCanvasImage(settings.referenceImage);
+  if (reference) {
+    loadCanvasMedia(reference);
   }
 }
 
@@ -160,7 +223,7 @@ function adjustZoom(delta) {
 
 function rotateImage(delta) {
   orientationDeg = normalizeOrientation(orientationDeg + delta);
-  settings.referenceOrientation = orientationDeg;
+  setStoredOrientation(orientationDeg);
   updateRotationLabel();
   if (img) {
     layoutCanvas();
@@ -172,12 +235,13 @@ function renderZoneList() {
   const list = document.getElementById('zone-list');
   if (!list) return;
 
-  if (!settings.zones?.length) {
-    list.innerHTML = '<li style="color: var(--color-text-muted); font-size: 0.875rem;">No zones yet — draw one on the reference image.</li>';
+  const zones = getActiveZones();
+  if (!zones.length) {
+    list.innerHTML = `<li style="color: var(--color-text-muted); font-size: 0.875rem;">No zones yet — draw one on the reference ${isVideoMode() ? 'video' : 'image'}.</li>`;
     return;
   }
 
-  list.innerHTML = settings.zones.map((zone, i) => `
+  list.innerHTML = zones.map((zone, i) => `
     <li class="zone-list-item">
       <input type="text" value="${zone.name}" data-zone-idx="${i}" aria-label="Zone name">
       <button class="btn btn-danger btn-sm" data-delete-zone="${i}">✕</button>
@@ -187,13 +251,17 @@ function renderZoneList() {
   list.querySelectorAll('[data-zone-idx]').forEach((input) => {
     input.addEventListener('change', (e) => {
       const idx = parseInt(e.target.dataset.zoneIdx, 10);
-      settings.zones[idx].name = e.target.value;
+      const next = getActiveZones();
+      next[idx].name = e.target.value;
+      setActiveZones(next);
     });
   });
 
   list.querySelectorAll('[data-delete-zone]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      settings.zones.splice(parseInt(btn.dataset.deleteZone, 10), 1);
+      const next = getActiveZones();
+      next.splice(parseInt(btn.dataset.deleteZone, 10), 1);
+      setActiveZones(next);
       renderZoneList();
       redrawCanvas();
     });
@@ -273,7 +341,14 @@ function zoneToCanvas(zone) {
   };
 }
 
-function loadCanvasImage(filename) {
+function mediaFrameSrc(filename) {
+  if (isVideoMode()) {
+    return `/api/video-frame?file=${encodeURIComponent(filename)}&t=${Date.now()}`;
+  }
+  return `/api/file/${String(filename).split('/').map(encodeURIComponent).join('/')}`;
+}
+
+function loadCanvasMedia(filename) {
   canvas = document.getElementById('zone-canvas');
   if (!canvas) return;
 
@@ -287,19 +362,19 @@ function loadCanvasImage(filename) {
   ctx = canvas.getContext('2d');
   img = new Image();
   img.crossOrigin = 'anonymous';
-  const imgSrc = `/api/file/${encodeURIComponent(filename)}`;
   img.onload = () => {
-    orientationDeg = settings.referenceOrientation != null
-      ? normalizeOrientation(settings.referenceOrientation)
+    const stored = getStoredOrientation();
+    orientationDeg = stored != null
+      ? normalizeOrientation(stored)
       : getDefaultOrientation(img.width, img.height);
     updateRotationLabel();
     layoutCanvas();
     redrawCanvas();
   };
   img.onerror = () => {
-    showToast(`Failed to load image: ${filename}`, 'error');
+    showToast(`Failed to load ${isVideoMode() ? 'video frame' : 'image'}: ${filename}`, 'error');
   };
-  img.src = imgSrc;
+  img.src = mediaFrameSrc(filename);
 
   canvas.onmousedown = onMouseDown;
   canvas.onmousemove = onMouseMove;
@@ -335,7 +410,7 @@ function redrawCanvas() {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   drawPhoto();
 
-  (settings.zones || []).forEach((zone) => {
+  getActiveZones().forEach((zone) => {
     const { x, y, w, h } = zoneToCanvas(zone);
 
     ctx.strokeStyle = '#6b5ce7';
@@ -423,33 +498,50 @@ function onMouseUp(e) {
     return;
   }
 
-  if (!settings.zones) settings.zones = [];
-
-  settings.zones.push({
+  const zones = getActiveZones().slice();
+  zones.push({
     name,
     x: (x - imageRect.x) / imageRect.w,
     y: (y - imageRect.y) / imageRect.h,
     width: w / imageRect.w,
     height: h / imageRect.h,
   });
+  setActiveZones(zones);
 
   currentRect = null;
   renderZoneList();
   redrawCanvas();
 }
 
+function switchMode(nextMode) {
+  if (nextMode === editorMode) return;
+  setStoredOrientation(orientationDeg);
+  editorMode = nextMode;
+  const stored = getStoredOrientation();
+  orientationDeg = stored != null ? normalizeOrientation(stored) : 0;
+  render();
+}
+
 function bindEvents() {
-  document.getElementById('ref-image-select')?.addEventListener('change', (e) => {
-    settings.referenceImage = e.target.value || null;
-    settings.referenceOrientation = null;
+  document.querySelectorAll('#zone-modality-toggle button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      switchMode(btn.dataset.mode === MODE_VIDEO ? MODE_VIDEO : MODE_PHOTO);
+    });
+  });
+
+  document.getElementById('ref-media-select')?.addEventListener('change', (e) => {
+    setReference(e.target.value || null);
+    setStoredOrientation(null);
+    orientationDeg = 0;
     const wrap = document.getElementById('canvas-wrap');
     const toolbar = document.getElementById('zone-editor-toolbar');
     const hint = document.getElementById('zone-editor-hint');
-    if (settings.referenceImage) {
+    const reference = getReference();
+    if (reference) {
       wrap.style.display = '';
       toolbar.style.display = '';
       if (hint) hint.style.display = '';
-      loadCanvasImage(settings.referenceImage);
+      loadCanvasMedia(reference);
     } else {
       wrap.style.display = 'none';
       toolbar.style.display = 'none';
@@ -491,19 +583,23 @@ function onKeyUp(e) {
 }
 
 function clearAllZones() {
-  if (!settings.zones?.length) return;
+  if (!getActiveZones().length) return;
   if (!window.confirm('Remove all zones? This cannot be undone until you save.')) return;
-  settings.zones = [];
+  setActiveZones([]);
   renderZoneList();
   redrawCanvas();
 }
 
 async function saveZones() {
   try {
+    setStoredOrientation(orientationDeg);
     const payload = {
-      zones: settings.zones,
-      referenceImage: settings.referenceImage,
-      referenceOrientation: orientationDeg,
+      zones: settings.zones || [],
+      referenceImage: settings.referenceImage || null,
+      referenceOrientation: settings.referenceOrientation,
+      videoZones: settings.videoZones || [],
+      referenceVideo: settings.referenceVideo || null,
+      referenceVideoOrientation: settings.referenceVideoOrientation,
       ai: {
         provider: settings.ai?.provider || 'google',
         model: settings.ai?.model || 'gemini-2.5-flash',
@@ -514,11 +610,10 @@ async function saveZones() {
       method: 'POST',
       body: JSON.stringify(payload),
     });
-    orientationDeg = settings.referenceOrientation != null
-      ? normalizeOrientation(settings.referenceOrientation)
-      : 0;
+    const stored = getStoredOrientation();
+    orientationDeg = stored != null ? normalizeOrientation(stored) : 0;
 
-    showToast('Zones saved successfully', 'success');
+    showToast(`${isVideoMode() ? 'Video' : 'Photo'} zones saved successfully`, 'success');
     render();
   } catch (err) {
     showToast(err.message, 'error');
@@ -532,13 +627,20 @@ export async function init() {
       apiFetch('/api/settings'),
       apiFetch('/api/files'),
     ]);
+    if (!Array.isArray(settings.zones)) settings.zones = [];
+    if (!Array.isArray(settings.videoZones)) settings.videoZones = [];
+
     const imageFiles = files.filter((f) => f.type === 'image');
+    const videoFiles = files.filter((f) => f.type === 'video');
     if (settings.referenceImage) {
-      settings.referenceImage = resolveReferenceImage(settings.referenceImage, imageFiles);
+      settings.referenceImage = resolveReferenceMedia(settings.referenceImage, imageFiles);
     }
-    orientationDeg = settings.referenceOrientation != null
-      ? normalizeOrientation(settings.referenceOrientation)
-      : 0;
+    if (settings.referenceVideo) {
+      settings.referenceVideo = resolveReferenceMedia(settings.referenceVideo, videoFiles);
+    }
+
+    const stored = getStoredOrientation();
+    orientationDeg = stored != null ? normalizeOrientation(stored) : 0;
     render();
   } catch (err) {
     container().innerHTML = `

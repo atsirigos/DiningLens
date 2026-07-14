@@ -1,13 +1,12 @@
 const sharp = require('sharp');
-const { normalizeOrientation } = require('./imageRotate');
 const { resolveOrientation, zoneToLandscapePixels } = require('./zoneGeometry');
 
 /**
  * Zone coordinates are normalized (0–1) on a landscape view (wide side horizontal).
  * Orientation matches the Zones editor (portrait default + saved referenceOrientation).
  */
-async function cropZoneFromPhoto(filePath, zone, orientationDeg = null) {
-  const orientedBuffer = await sharp(filePath).rotate().toBuffer();
+async function cropZoneFromImageSource(source, zone, orientationDeg = null) {
+  const orientedBuffer = await sharp(source).rotate().toBuffer();
   const orientedMeta = await sharp(orientedBuffer).metadata();
 
   const orient = resolveOrientation(
@@ -41,6 +40,14 @@ async function cropZoneFromPhoto(filePath, zone, orientationDeg = null) {
   };
 }
 
+async function cropZoneFromPhoto(filePath, zone, orientationDeg = null) {
+  return cropZoneFromImageSource(filePath, zone, orientationDeg);
+}
+
+async function cropZoneFromBuffer(buffer, zone, orientationDeg = null) {
+  return cropZoneFromImageSource(buffer, zone, orientationDeg);
+}
+
 async function cropAllZones(filePath, zones, orientationDeg = null) {
   const crops = [];
   for (const zone of zones) {
@@ -51,4 +58,19 @@ async function cropAllZones(filePath, zones, orientationDeg = null) {
   return crops;
 }
 
-module.exports = { cropZoneFromPhoto, cropAllZones };
+async function cropAllZonesFromBuffer(buffer, zones, orientationDeg = null) {
+  const crops = [];
+  for (const zone of zones) {
+    if (!zone?.name) continue;
+    const image = await cropZoneFromBuffer(buffer, zone, orientationDeg);
+    crops.push({ zone, image });
+  }
+  return crops;
+}
+
+module.exports = {
+  cropZoneFromPhoto,
+  cropZoneFromBuffer,
+  cropAllZones,
+  cropAllZonesFromBuffer,
+};

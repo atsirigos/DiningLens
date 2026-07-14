@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
-const { analyzeImage } = require('../utils/aiWrapper');
+const { analyzeMedia } = require('../utils/aiWrapper');
 const { getSettings } = require('../db/settingsStore');
 
 const router = express.Router();
@@ -48,7 +48,7 @@ router.get('/results', (req, res) => {
 });
 
 router.post('/process', async (req, res) => {
-  const { filename, userContext } = req.body;
+  const { filename, userContext, frameTimeSec } = req.body || {};
 
   if (!filename) {
     return res.status(400).json({ error: 'filename is required' });
@@ -67,7 +67,13 @@ router.post('/process', async (req, res) => {
 
   try {
     const settings = getSettings();
-    const result = await analyzeImage(filePath, settings, userContext, { filename });
+    const parsedFrameTime = Number(frameTimeSec);
+    const result = await analyzeMedia(filePath, settings, userContext, {
+      filename,
+      ...(Number.isFinite(parsedFrameTime) && parsedFrameTime >= 0
+        ? { frameTimeSec: parsedFrameTime }
+        : {}),
+    });
     result.processedAt = new Date().toISOString();
     result.filename = filename;
 

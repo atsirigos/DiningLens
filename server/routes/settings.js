@@ -30,8 +30,11 @@ router.post('/settings', (req, res) => {
     const existing = getSettings();
     const incoming = req.body || {};
 
+    // Merge over existing so partial saves (AI, photo zones, video zones)
+    // do not wipe the other modality’s fields.
     const settings = {
       ...DEFAULTS,
+      ...existing,
       ...incoming,
       ai: {
         ...DEFAULT_AI,

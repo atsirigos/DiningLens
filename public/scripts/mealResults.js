@@ -130,10 +130,14 @@ export function getGalleryZoneTabs(result, settingsZones = []) {
   ];
 }
 
-function zoneCropUrl(filePath, zoneName) {
+function zoneCropUrl(filePath, zoneName, frameTimeSec = null) {
   if (!filePath || !zoneName) return '';
   const cacheBust = Date.now();
-  return `/api/zone-crop?file=${encodeURIComponent(filePath)}&zone=${encodeURIComponent(zoneName)}&t=${cacheBust}`;
+  let url = `/api/zone-crop?file=${encodeURIComponent(filePath)}&zone=${encodeURIComponent(zoneName)}&t=${cacheBust}`;
+  if (Number.isFinite(Number(frameTimeSec)) && Number(frameTimeSec) >= 0) {
+    url += `&timeSec=${encodeURIComponent(String(frameTimeSec))}`;
+  }
+  return url;
 }
 
 function getFilePath(file) {
@@ -142,16 +146,16 @@ function getFilePath(file) {
 }
 
 function canShowZoneCrops(file) {
-  return file?.type === 'image' && Boolean(getFilePath(file));
+  return (file?.type === 'image' || file?.type === 'video') && Boolean(getFilePath(file));
 }
 
-function renderZoneCropPreview(filePath, zoneName) {
+function renderZoneCropPreview(filePath, zoneName, frameTimeSec = null) {
   if (!filePath || !zoneName) return '';
 
   return `
     <figure class="analysis-zone-crop">
       <img
-        src="${zoneCropUrl(filePath, zoneName)}"
+        src="${zoneCropUrl(filePath, zoneName, frameTimeSec)}"
         alt="Cropped zone: ${zoneName}"
         loading="lazy"
       >
@@ -159,12 +163,12 @@ function renderZoneCropPreview(filePath, zoneName) {
     </figure>`;
 }
 
-function renderAllZoneCrops(filePath, zoneNames) {
+function renderAllZoneCrops(filePath, zoneNames, frameTimeSec = null) {
   if (!filePath || !zoneNames.length) return '';
 
   return `
     <div class="analysis-zone-crops-grid">
-      ${zoneNames.map((zoneName) => renderZoneCropPreview(filePath, zoneName)).join('')}
+      ${zoneNames.map((zoneName) => renderZoneCropPreview(filePath, zoneName, frameTimeSec)).join('')}
     </div>`;
 }
 
@@ -273,11 +277,11 @@ function renderItemsTable(items, { showZone = false, legacyMacro = false } = {})
     </div>`;
 }
 
-function renderLegacyZonePanel(zone, filePath) {
+function renderLegacyZonePanel(zone, filePath, frameTimeSec = null) {
   const foods = zone.foods || [];
   return `
     <div class="meal-result gallery-analysis">
-      ${filePath ? renderZoneCropPreview(filePath, zone.name) : ''}
+      ${filePath ? renderZoneCropPreview(filePath, zone.name, frameTimeSec) : ''}
       <div class="analysis-zone-heading">
         <h3 class="analysis-zone-title">${zone.name}</h3>
       </div>
@@ -300,13 +304,13 @@ function renderLegacyZonePanel(zone, filePath) {
     </div>`;
 }
 
-function renderLegacyAllPanel(result, filePath) {
+function renderLegacyAllPanel(result, filePath, frameTimeSec = null) {
   const zones = result.zones || [];
   return `
     <div class="meal-result gallery-analysis">
       <p class="confidence-notes"><em>Legacy zone-based result</em></p>
-      ${filePath ? renderAllZoneCrops(filePath, zones.map((zone) => zone.name)) : ''}
-      ${zones.map((zone) => renderLegacyZonePanel(zone, null)).join('')}
+      ${filePath ? renderAllZoneCrops(filePath, zones.map((zone) => zone.name), frameTimeSec) : ''}
+      ${zones.map((zone) => renderLegacyZonePanel(zone, null, frameTimeSec)).join('')}
     </div>`;
 }
 
@@ -325,13 +329,14 @@ function getZoneNamesForResult(result, settingsZones = []) {
 function renderGalleryZoneContent(result, tab, { file, settingsZones = [] } = {}) {
   const scoped = scopeResultForTab(result, tab);
   const filePath = canShowZoneCrops(file) ? getFilePath(file) : null;
+  const frameTimeSec = result?.frameTimeSec;
 
   if (scoped.legacyZone) {
-    return renderLegacyZonePanel(scoped.legacyZone, filePath);
+    return renderLegacyZonePanel(scoped.legacyZone, filePath, frameTimeSec);
   }
 
   if (tab.id === 'all' && isLegacyResult(result)) {
-    return renderLegacyAllPanel(result, filePath);
+    return renderLegacyAllPanel(result, filePath, frameTimeSec);
   }
 
   if (isMacroResult(scoped)) {
@@ -345,18 +350,22 @@ function renderGalleryZoneContent(result, tab, { file, settingsZones = [] } = {}
   const items = scoped.items || [];
   const showZoneColumn = tab.id === 'all' && items.some((item) => item.zone);
   const zoneNames = getZoneNamesForResult(result, settingsZones);
+  const frameNote = Number.isFinite(Number(frameTimeSec))
+    ? `<p class="confidence-notes">Analyzed video frame at ${Number(frameTimeSec).toFixed(1)}s</p>`
+    : '';
 
   return `
     <div class="meal-result gallery-analysis">
+      ${frameNote}
       ${tab.id === 'all' && filePath && zoneNames.length
     ? `
         <h4 class="meal-section-title">Zone Crops</h4>
         <p class="confidence-notes">Each crop below was sent to the AI for analysis.</p>
-        ${renderAllZoneCrops(filePath, zoneNames)}
+        ${renderAllZoneCrops(filePath, zoneNames, frameTimeSec)}
       `
     : ''}
       ${scoped.zoneName ? `
-        ${filePath ? renderZoneCropPreview(filePath, scoped.zoneName) : ''}
+        ${filePath ? renderZoneCropPreview(filePath, scoped.zoneName, frameTimeSec) : ''}
         <div class="analysis-zone-heading">
           <h3 class="analysis-zone-title">${scoped.zoneName}</h3>
         </div>

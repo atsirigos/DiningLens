@@ -13,7 +13,7 @@ function fileApiUrl(relativePath) {
 let allFiles = [];
 let filteredFiles = [];
 let results = {};
-let appSettings = { zones: [] };
+let appSettings = { zones: [], videoZones: [] };
 let lightboxIndex = -1;
 
 const container = () => document.getElementById('gallery-content');
@@ -715,6 +715,19 @@ async function rotateGalleryImage(file, degrees, { lightbox = null, cardElement 
   }
 }
 
+function zonesForGalleryFile(file) {
+  if (file?.type === 'video' || file?.mode === 'video') {
+    return {
+      zones: appSettings.videoZones || [],
+      orientationDeg: appSettings.referenceVideoOrientation,
+    };
+  }
+  return {
+    zones: appSettings.zones || [],
+    orientationDeg: appSettings.referenceOrientation,
+  };
+}
+
 function renderResultsPanel(file, activeTabId = 'all') {
   const result = getResultForFile(file);
   if (!result) {
@@ -723,8 +736,9 @@ function renderResultsPanel(file, activeTabId = 'all') {
       <button type="button" class="btn btn-primary btn-sm gallery-inline-process-btn">Process</button>`;
   }
 
+  const { zones } = zonesForGalleryFile(file);
   let html = `<p class="analysis-processed-at"><strong>Processed:</strong> ${formatDate(result.processedAt)}</p>`;
-  html += renderGalleryAnalysisPanel(result, appSettings.zones, activeTabId, file);
+  html += renderGalleryAnalysisPanel(result, zones, activeTabId, file);
   return html;
 }
 
@@ -764,9 +778,12 @@ function bindLightboxInteractions(lb, initialFile = null) {
     const activeTabId = tab.dataset.zoneTab;
     body.innerHTML = renderResultsPanel(file, activeTabId);
 
-    const host = lb.querySelector('.lightbox-photo-host');
-    if (host && appSettings.zones?.length) {
-      highlightZoneOverlay(host, getActiveZoneName(result, appSettings.zones, activeTabId));
+    const host = lb.querySelector('.lightbox-photo-host, .lightbox-video-host, .recording-lightbox-viewport');
+    if (host) {
+      const { zones } = zonesForGalleryFile(file);
+      if (zones?.length) {
+        highlightZoneOverlay(host, getActiveZoneName(result, zones, activeTabId));
+      }
     }
   });
 }
@@ -778,14 +795,52 @@ function bindAnalysisTabs(lightbox, file) {
 function drawLightboxZones(lightbox) {
   const img = lightbox.querySelector('.lightbox-photo-host img');
   const host = lightbox.querySelector('.lightbox-photo-host');
-  if (!host || !img || !appSettings.zones?.length) return;
+  const { zones, orientationDeg } = zonesForGalleryFile({ type: 'image' });
+  if (!host || !img || !zones?.length) return;
 
-  mountZoneOverlay(host, img, appSettings.zones, appSettings.referenceOrientation);
+  mountZoneOverlay(host, img, zones, orientationDeg);
   const result = results[lightbox.dataset.filename];
   const fileKey = lightbox.dataset.filepath || lightbox.dataset.filename;
   const fileResult = result || results[fileKey];
   if (fileResult) {
-    highlightZoneOverlay(host, getActiveZoneName(fileResult, appSettings.zones, 'all'));
+    highlightZoneOverlay(host, getActiveZoneName(fileResult, zones, 'all'));
+  }
+}
+
+function drawLightboxVideoZones(lightbox, analysisFile = null) {
+  const host = lightbox.querySelector('.lightbox-video-host, .recording-lightbox-viewport');
+  if (!host) return;
+
+  // Recover video if an older overlay path reparented it into a wrap.
+  const trapped = host.querySelector('.zone-orient-wrap video');
+  if (trapped) {
+    trapped.removeAttribute('style');
+    host.insertBefore(trapped, host.querySelector('.zone-orient-wrap'));
+    host.querySelector('.zone-orient-wrap')?.remove();
+  }
+  host.querySelector('.zone-overlay-layer')?.remove();
+
+  const video = host.querySelector('video');
+  const { zones, orientationDeg } = zonesForGalleryFile({ type: 'video' });
+  if (!video || !zones?.length) return;
+
+  const mount = () => {
+    if (!video.videoWidth || !host.clientWidth) return;
+    mountZoneOverlay(host, video, zones, orientationDeg);
+    const file = analysisFile || lightbox._analysisFile;
+    const fileResult = file ? getResultForFile(file) : null;
+    if (fileResult) {
+      highlightZoneOverlay(host, getActiveZoneName(fileResult, zones, 'all'));
+    }
+  };
+
+  if (video.readyState >= 1 && video.videoWidth) {
+    // Layout may not be ready on first paint
+    requestAnimationFrame(() => requestAnimationFrame(mount));
+  } else {
+    video.addEventListener('loadedmetadata', () => {
+      requestAnimationFrame(() => requestAnimationFrame(mount));
+    }, { once: true });
   }
 }
 
@@ -815,16 +870,24 @@ function openLightbox(index) {
   removeExistingLightbox();
 
   const src = `${fileApiUrl(file.path || file.name)}`;
+  const videoZones = appSettings.videoZones || [];
+  const photoZones = appSettings.zones || [];
   const media = file.type === 'video'
-    ? `<video src="${src}" controls autoplay></video>`
+    ? `<div class="zone-photo-host lightbox-video-host recording-lightbox-viewport">
+        <video src="${src}" controls autoplay></video>
+      </div>`
     : `<div class="zone-photo-host lightbox-photo-host">
         <img src="${src}" alt="${file.name}">
         ${renderLightboxRotateToolbar()}
       </div>`;
 
-  const zoneNote = appSettings.zones?.length
-    ? `<p class="zone-applied-note">${appSettings.zones.length} saved zone(s) apply to this view</p>`
-    : '';
+  const zoneNote = file.type === 'video'
+    ? (videoZones.length
+      ? `<p class="zone-applied-note">${videoZones.length} video zone(s) apply to this view</p>`
+      : '')
+    : (photoZones.length
+      ? `<p class="zone-applied-note">${photoZones.length} photo zone(s) apply to this view</p>`
+      : '');
 
   const lb = document.createElement('div');
   lb.className = 'lightbox';
@@ -857,11 +920,18 @@ function openLightbox(index) {
 
   document.body.appendChild(lb);
 
-  if (file.type === 'image' && appSettings.zones?.length) {
+  if (file.type === 'image' && (appSettings.zones || []).length) {
     const drawZones = () => drawLightboxZones(lb);
     const img = lb.querySelector('.lightbox-photo-host img');
     if (img.complete) drawZones();
     else img.addEventListener('load', drawZones);
+    window.addEventListener('resize', drawZones, { once: false });
+    lb._zoneResize = drawZones;
+  }
+
+  if (file.type === 'video' && (appSettings.videoZones || []).length) {
+    const drawZones = () => drawLightboxVideoZones(lb, file);
+    drawZones();
     window.addEventListener('resize', drawZones, { once: false });
     lb._zoneResize = drawZones;
   }
@@ -875,6 +945,9 @@ function openLightbox(index) {
         const meta = lb.querySelector('.lightbox-file-meta');
         if (meta) {
           meta.textContent = `${formatBytes(result.size ?? file.size)} · ${formatDate(file.modified)} · ${formatFps(result.fps)}`;
+        }
+        if ((appSettings.videoZones || []).length) {
+          drawLightboxVideoZones(lb, file);
         }
       },
     });
@@ -918,6 +991,9 @@ function openVideoRecordingLightbox(index) {
         <div class="recording-playback-viewport recording-lightbox-viewport">
           <video class="recording-video-player rp-video" controls autoplay src="${fileApiUrl(videos[0].path)}"></video>
         </div>
+        ${(appSettings.videoZones || []).length
+    ? `<p class="zone-applied-note">${appSettings.videoZones.length} video zone(s) apply to this view</p>`
+    : ''}
         <div class="recording-playback-controls">
           <button type="button" class="btn btn-ghost btn-sm rp-prev" ${videos.length < 2 ? 'disabled' : ''}>‹ Prev clip</button>
           <span class="recording-playback-counter rp-counter">1 / ${videos.length}</span>
@@ -950,14 +1026,24 @@ function openVideoRecordingLightbox(index) {
 
   document.body.appendChild(lb);
 
-  const videoEl = lb.querySelector('.rp-video');
+  // Prefer a live query each time — do not keep a stale node if DOM shifted.
+  const getVideoEl = () => lb.querySelector('.rp-video') || lb.querySelector('video');
   const counter = lb.querySelector('.rp-counter');
   const downloadLink = lb.querySelector('.rp-download');
   const fpsPanel = lb.querySelector('.gallery-video-fps-panel');
 
+  function remountVideoZones() {
+    if (!(appSettings.videoZones || []).length) return;
+    lb._analysisFile = videos[clipIndex];
+    drawLightboxVideoZones(lb, videos[clipIndex]);
+  }
+
   function showClip(i) {
     clipIndex = Math.max(0, Math.min(i, videos.length - 1));
     const clip = videos[clipIndex];
+    const videoEl = getVideoEl();
+    if (!videoEl) return;
+
     videoEl.src = `${fileApiUrl(clip.path)}`;
     counter.textContent = `${clipIndex + 1} / ${videos.length}`;
     if (downloadLink) {
@@ -965,8 +1051,13 @@ function openVideoRecordingLightbox(index) {
       downloadLink.setAttribute('download', clip.name);
     }
     refreshVideoFpsPanel(fpsPanel, clip);
-    videoEl.play?.();
+    remountVideoZones();
+    videoEl.play?.().catch(() => {});
   }
+
+  remountVideoZones();
+  window.addEventListener('resize', remountVideoZones, { once: false });
+  lb._zoneResize = remountVideoZones;
 
   lb.querySelector('.rp-prev')?.addEventListener('click', () => showClip(clipIndex - 1));
   lb.querySelector('.rp-next')?.addEventListener('click', () => showClip(clipIndex + 1));
@@ -975,8 +1066,8 @@ function openVideoRecordingLightbox(index) {
   });
 
   bindVideoFpsPanel(lb, () => videos[clipIndex], {
-    videoEl,
-    onUpdated: (result) => {
+    videoEl: getVideoEl(),
+    onUpdated: () => {
       const pickBtns = lb.querySelectorAll('.recording-video-pick');
       const btn = pickBtns[clipIndex];
       if (btn) {
@@ -987,6 +1078,7 @@ function openVideoRecordingLightbox(index) {
       if (meta) {
         meta.textContent = `${videos.length} video clip${videos.length === 1 ? '' : 's'} · ${formatBytes(file.size)} · ${formatDate(file.modified)}`;
       }
+      remountVideoZones();
     },
   });
 

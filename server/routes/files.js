@@ -3,9 +3,10 @@ const fs = require('fs');
 const express = require('express');
 const { scanDataFolder } = require('../utils/fileScanner');
 const { getSettings } = require('../db/settingsStore');
-const { cropZoneFromPhoto } = require('../utils/zoneCropper');
+const { cropZoneFromPhoto, cropZoneFromBuffer } = require('../utils/zoneCropper');
 const { rotateImageFile, normalizeOrientation } = require('../utils/imageRotate');
 const { thumbPathForVideo, ensureVideoThumbnail, generateVideoThumbnail } = require('../utils/videoThumb');
+const { extractVideoFrame, DEFAULT_FRAME_TIME_SEC } = require('../utils/videoFrame');
 const {
   ALLOWED_VIDEO_TARGET_FPS,
   normalizeVideoTargetFps,
@@ -18,6 +19,9 @@ const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 
 /** @type {Map<string, { mtimeMs: number, size: number, fps: number|null }>} */
 const videoFpsCache = new Map();
+
+const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+const VIDEO_EXTS = new Set(['.mp4', '.mov']);
 
 const MIME_TYPES = {
   '.jpg': 'image/jpeg',
@@ -126,24 +130,75 @@ router.get('/zone-crop', async (req, res) => {
     }
 
     const ext = path.extname(filePath).toLowerCase();
-    if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) {
-      return res.status(400).json({ error: 'Zone crops are only available for images' });
+    const isImage = IMAGE_EXTS.has(ext);
+    const isVideo = VIDEO_EXTS.has(ext);
+    if (!isImage && !isVideo) {
+      return res.status(400).json({ error: 'Zone crops are only available for images and videos' });
     }
 
     const zoneName = decodeURIComponent(zone);
     const settings = getSettings();
-    const zoneConfig = settings.zones.find((entry) => entry.name === zoneName);
+    const zoneList = isVideo ? (settings.videoZones || []) : (settings.zones || []);
+    const orientation = isVideo
+      ? settings.referenceVideoOrientation
+      : settings.referenceOrientation;
+    const zoneConfig = zoneList.find((entry) => entry.name === zoneName);
     if (!zoneConfig) {
-      return res.status(404).json({ error: `Zone "${zoneName}" not found in settings` });
+      return res.status(404).json({
+        error: `Zone "${zoneName}" not found in ${isVideo ? 'video' : 'photo'} zones`,
+      });
     }
 
-    const image = await cropZoneFromPhoto(filePath, zoneConfig, settings.referenceOrientation);
-    const buffer = Buffer.from(image.base64, 'base64');
+    let image;
+    if (isVideo) {
+      const requested = Number(req.query.timeSec);
+      const timeSec = Number.isFinite(requested) && requested >= 0
+        ? requested
+        : DEFAULT_FRAME_TIME_SEC;
+      const { buffer } = await extractVideoFrame(filePath, { timeSec });
+      image = await cropZoneFromBuffer(buffer, zoneConfig, orientation);
+    } else {
+      image = await cropZoneFromPhoto(filePath, zoneConfig, orientation);
+    }
+
+    const out = Buffer.from(image.base64, 'base64');
     res.setHeader('Content-Type', image.mimeType);
     res.setHeader('Cache-Control', 'private, max-age=3600');
-    res.send(buffer);
+    res.send(out);
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to crop zone' });
+  }
+});
+
+router.get('/video-frame', async (req, res) => {
+  try {
+    const { file } = req.query;
+    if (!file) {
+      return res.status(400).json({ error: 'file query parameter is required' });
+    }
+
+    const filePath = resolveSafePath(file);
+    if (!filePath) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    if (!VIDEO_EXTS.has(ext)) {
+      return res.status(400).json({ error: 'video-frame is only available for videos' });
+    }
+
+    const requested = Number(req.query.timeSec);
+    const timeSec = Number.isFinite(requested) && requested >= 0
+      ? requested
+      : DEFAULT_FRAME_TIME_SEC;
+
+    const { buffer, mimeType } = await extractVideoFrame(filePath, { timeSec });
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    res.setHeader('X-Frame-Time-Sec', String(timeSec));
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to extract video frame' });
   }
 });
 

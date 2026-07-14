@@ -58,6 +58,9 @@ const DEFAULTS = {
   zones: [],
   referenceImage: null,
   referenceOrientation: null,
+  videoZones: [],
+  referenceVideo: null,
+  referenceVideoOrientation: null,
   ai: { ...DEFAULT_AI },
   phone: { ...DEFAULT_PHONE },
 };
@@ -131,6 +134,11 @@ function normalize(settings) {
     referenceImage: settings?.referenceImage ?? DEFAULTS.referenceImage,
     referenceOrientation: settings?.referenceOrientation != null
       ? normalizeOrientation(settings.referenceOrientation)
+      : null,
+    videoZones: Array.isArray(settings?.videoZones) ? settings.videoZones : DEFAULTS.videoZones,
+    referenceVideo: settings?.referenceVideo ?? DEFAULTS.referenceVideo,
+    referenceVideoOrientation: settings?.referenceVideoOrientation != null
+      ? normalizeOrientation(settings.referenceVideoOrientation)
       : null,
     ai: { ...DEFAULT_AI, ...settings?.ai },
     phone: normalizePhone(settings?.phone),
