@@ -554,6 +554,18 @@
           <label for="interval-input">Frequency (seconds per photo)</label>
           <input type="number" id="interval-input" min="5" max="600" value="30">
         </div>
+        <div id="video-fps-wrap" hidden>
+          <label for="video-fps-input">Video postprocess FPS</label>
+          <select id="video-fps-input">
+            <option value="0" selected>Native (no change)</option>
+            <option value="1">1 fps</option>
+            <option value="2">2 fps</option>
+            <option value="5">5 fps</option>
+            <option value="10">10 fps</option>
+            <option value="15">15 fps</option>
+            <option value="30">30 fps</option>
+          </select>
+        </div>
         <div>
           <label for="max-input">Max length (minutes)</label>
           <input type="number" id="max-input" min="1" max="240" value="30">
@@ -913,7 +925,9 @@
     function syncModeUi() {
       const video = selectedMode() === MODE_VIDEO;
       const intervalWrap = document.getElementById('interval-wrap');
+      const fpsWrap = document.getElementById('video-fps-wrap');
       if (intervalWrap) intervalWrap.hidden = video;
+      if (fpsWrap) fpsWrap.hidden = !video;
       const startBtn = document.getElementById('start-btn');
       if (startBtn && !starting) {
         startBtn.textContent = video ? 'Start video' : 'Start recording';
@@ -1097,6 +1111,8 @@
       });
       intervalInput.disabled = busy;
       maxInput.disabled = busy;
+      const fpsInput = document.getElementById('video-fps-input');
+      if (fpsInput) fpsInput.disabled = busy;
       startBtn.disabled = busy || !isPhoneReady();
       stopBtn.disabled = !isRecording || stopping || status?.status === 'stopping';
 
@@ -1117,6 +1133,7 @@
         mode: selectedMode(),
         intervalSeconds: Number(document.getElementById('interval-input').value) || DEFAULT_INTERVAL,
         maxMinutes: Number(document.getElementById('max-input').value) || DEFAULT_MAX_MINUTES,
+        videoTargetFps: Number(document.getElementById('video-fps-input')?.value) || 0,
       };
     }
 
@@ -1180,8 +1197,27 @@
       input.addEventListener('change', syncModeUi);
     });
 
+    document.getElementById('video-fps-input')?.addEventListener('change', async (e) => {
+      const videoTargetFps = Number(e.target.value) || 0;
+      try {
+        await apiFetch('/api/phone/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ videoTargetFps }),
+        });
+        showToast(
+          videoTargetFps
+            ? `Video will be postprocessed to ${videoTargetFps} fps`
+            : 'Video FPS postprocess disabled',
+          'success',
+        );
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+
     document.getElementById('start-btn').addEventListener('click', async () => {
-      const { mode, intervalSeconds, maxMinutes } = getFormValues();
+      const { mode, intervalSeconds, maxMinutes, videoTargetFps } = getFormValues();
 
       if (mode === MODE_TIMELAPSE && (intervalSeconds < 5 || intervalSeconds > 600)) {
         showToast('Frequency must be between 5 and 600 seconds.', 'error');
@@ -1212,8 +1248,21 @@
           /* use last polled health */
         }
 
+        if (mode === MODE_VIDEO) {
+          try {
+            await apiFetch('/api/phone/config', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ videoTargetFps }),
+            });
+          } catch {
+            /* non-fatal; start still sends fps in body */
+          }
+        }
+
         const body = { mode, maxMinutes };
         if (mode === MODE_TIMELAPSE) body.intervalSeconds = intervalSeconds;
+        if (mode === MODE_VIDEO) body.videoTargetFps = videoTargetFps;
         status = await apiFetch('/api/recording/start', {
           method: 'POST',
           body: JSON.stringify(body),
@@ -1258,9 +1307,20 @@
       }
     });
 
+    async function loadPhoneSettings() {
+      try {
+        const settings = await apiFetch('/api/settings');
+        const fps = Number(settings.phone?.videoTargetFps) || 0;
+        const fpsInput = document.getElementById('video-fps-input');
+        if (fpsInput) fpsInput.value = String(fps);
+      } catch {
+        /* use defaults */
+      }
+    }
+
     async function init() {
       await waitForServer();
-      await Promise.all([loadHealth(), loadRecordingStatus()]);
+      await Promise.all([loadHealth(), loadRecordingStatus(), loadPhoneSettings()]);
       startHealthPolling();
       syncControls();
     }

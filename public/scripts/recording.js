@@ -9,7 +9,7 @@ const MODE_TIMELAPSE = 'timelapse';
 const MODE_VIDEO = 'video';
 
 let status = null;
-let phoneSettings = { frameRotation: 0 };
+let phoneSettings = { frameRotation: 0, videoTargetFps: 0 };
 let pollTimer = null;
 let starting = false;
 let stopping = false;
@@ -347,6 +347,21 @@ function renderConfigCard() {
             value="${intervalValue ?? DEFAULT_INTERVAL_SECONDS}"
             ${busy ? 'disabled' : ''}
           >
+        </div>
+        <div class="form-group" id="recording-video-fps-group" ${mode === MODE_VIDEO ? '' : 'hidden'}>
+          <label for="recording-video-fps">Video postprocess FPS</label>
+          <select id="recording-video-fps" ${busy ? 'disabled' : ''}>
+            <option value="0" ${!phoneSettings.videoTargetFps ? 'selected' : ''}>Native (no change)</option>
+            <option value="1" ${phoneSettings.videoTargetFps === 1 ? 'selected' : ''}>1 fps</option>
+            <option value="2" ${phoneSettings.videoTargetFps === 2 ? 'selected' : ''}>2 fps</option>
+            <option value="5" ${phoneSettings.videoTargetFps === 5 ? 'selected' : ''}>5 fps</option>
+            <option value="10" ${phoneSettings.videoTargetFps === 10 ? 'selected' : ''}>10 fps</option>
+            <option value="15" ${phoneSettings.videoTargetFps === 15 ? 'selected' : ''}>15 fps</option>
+            <option value="30" ${phoneSettings.videoTargetFps === 30 ? 'selected' : ''}>30 fps</option>
+          </select>
+          <p class="form-hint" style="margin-top: 0.35rem; font-size: 0.8rem; color: var(--color-text-muted);">
+            Screenrecord cannot set FPS on the phone. After each clip is pulled, it can be re-encoded to this rate.
+          </p>
         </div>
         <div class="form-group">
           <label for="recording-max-minutes">Max recording length (minutes)</label>
@@ -724,8 +739,10 @@ function bindEvents() {
       selectedMode = e.target.value === MODE_VIDEO ? MODE_VIDEO : MODE_TIMELAPSE;
       const intervalGroup = document.getElementById('recording-interval-group');
       const rotationGroup = document.getElementById('recording-rotation-group');
+      const fpsGroup = document.getElementById('recording-video-fps-group');
       if (intervalGroup) intervalGroup.hidden = selectedMode === MODE_VIDEO;
       if (rotationGroup) rotationGroup.hidden = selectedMode === MODE_VIDEO;
+      if (fpsGroup) fpsGroup.hidden = selectedMode !== MODE_VIDEO;
       const startBtn = document.getElementById('recording-start-btn');
       if (startBtn && !starting) {
         startBtn.textContent = selectedMode === MODE_VIDEO ? 'Start video' : 'Start recording';
@@ -772,6 +789,7 @@ function bindEvents() {
       playbackIndex = 0;
       const body = { mode: selectedMode, maxMinutes };
       if (selectedMode === MODE_TIMELAPSE) body.intervalSeconds = intervalSeconds;
+      if (selectedMode === MODE_VIDEO) body.videoTargetFps = phoneSettings.videoTargetFps || 0;
       status = await apiFetch('/api/recording/start', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -867,6 +885,27 @@ function bindEvents() {
       e.target.value = String(phoneSettings.frameRotation);
     }
   });
+
+  document.getElementById('recording-video-fps')?.addEventListener('change', async (e) => {
+    const videoTargetFps = Number(e.target.value) || 0;
+    try {
+      await apiFetch('/api/phone/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoTargetFps }),
+      });
+      phoneSettings.videoTargetFps = videoTargetFps;
+      showToast(
+        videoTargetFps
+          ? `Video will be postprocessed to ${videoTargetFps} fps`
+          : 'Video FPS postprocess disabled',
+        'success',
+      );
+    } catch (err) {
+      showToast(err.message, 'error');
+      e.target.value = String(phoneSettings.videoTargetFps || 0);
+    }
+  });
 }
 
 export async function init() {
@@ -876,7 +915,10 @@ export async function init() {
       apiFetch('/api/settings'),
       loadStatus(),
     ]);
-    phoneSettings = { frameRotation: settings.phone?.frameRotation || 0 };
+    phoneSettings = {
+      frameRotation: settings.phone?.frameRotation || 0,
+      videoTargetFps: Number(settings.phone?.videoTargetFps) || 0,
+    };
     render();
   } catch (err) {
     container().innerHTML = `

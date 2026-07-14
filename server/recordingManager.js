@@ -20,6 +20,7 @@ const {
 } = require('./androidCamera');
 const { getSettings } = require('./db/settingsStore');
 const { generateVideoThumbnail } = require('./utils/videoThumb');
+const { downsampleVideoToFps, normalizeVideoTargetFps } = require('./utils/videoFps');
 
 const ROOT = path.join(__dirname, '..');
 const DATA_DIR = path.join(ROOT, 'data');
@@ -312,6 +313,19 @@ async function pullVideoSegment(activeSession, remotePath, segmentIndex) {
         /* ignore */
       }
       throw new Error(message);
+    }
+
+    const targetFps = normalizeVideoTargetFps(
+      activeSession.videoTargetFps ?? getSettings().phone?.videoTargetFps,
+    );
+    if (targetFps > 0) {
+      try {
+        console.log(`[recording] reducing ${file} to ${targetFps} fps…`);
+        await downsampleVideoToFps(localPath, targetFps);
+      } catch (err) {
+        console.warn(`[recording] FPS postprocess failed for ${file}:`, err.message);
+        activeSession.lastError = activeSession.lastError || err.message;
+      }
     }
 
     const entry = buildMediaEntry(activeSession.sessionId, file);
@@ -689,7 +703,7 @@ function scheduleCaptureLoop() {
   }, session.intervalMs);
 }
 
-async function startRecording({ mode, intervalSeconds, maxMinutes } = {}) {
+async function startRecording({ mode, intervalSeconds, maxMinutes, videoTargetFps } = {}) {
   if (session?.status === 'recording' || session?.status === 'starting') {
     throw new Error('A recording session is already in progress.');
   }
@@ -702,6 +716,11 @@ async function startRecording({ mode, intervalSeconds, maxMinutes } = {}) {
   const maxMins = parseMaxMinutes(maxMinutes);
   const intervalMs = interval * 1000;
   const maxDurationMs = maxMins * 60 * 1000;
+  const targetFps = normalizeVideoTargetFps(
+    videoTargetFps !== undefined
+      ? videoTargetFps
+      : getSettings().phone?.videoTargetFps,
+  );
   const startedMs = Date.now();
   const mark = (label) => {
     console.log(`[recording] start +${Date.now() - startedMs}ms: ${label}`);
@@ -751,6 +770,7 @@ async function startRecording({ mode, intervalSeconds, maxMinutes } = {}) {
       videos: [],
       videoSegments: 0,
       nextSegmentIndex: 1,
+      videoTargetFps: recordingMode === MODE_VIDEO ? targetFps : 0,
       phoneFiles: [],
       remoteVideoPaths: [],
       lastError: null,

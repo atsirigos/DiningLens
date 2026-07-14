@@ -1,5 +1,6 @@
 const { normalizeOrientation } = require('../utils/imageRotate');
 const { normalizeChargeControl } = require('../utils/chargeControlConfig');
+const { normalizeVideoTargetFps } = require('../utils/videoFps');
 const path = require('path');
 const fs = require('fs');
 const { getDb } = require('./database');
@@ -16,6 +17,8 @@ const DEFAULT_PHONE = {
   defaultDeviceId: null,
   activeDeviceId: null,
   frameRotation: 0,
+  /** 0 = keep native screenrecord FPS; otherwise downsample after pull. */
+  videoTargetFps: 0,
   chargeControl: {
     enabled: true,
     stopAt: 80,
@@ -115,6 +118,9 @@ function normalizePhone(phone) {
     defaultDeviceId,
     activeDeviceId,
     frameRotation: normalizeOrientation(raw.frameRotation),
+    videoTargetFps: normalizeVideoTargetFps(
+      raw.videoTargetFps ?? DEFAULT_PHONE.videoTargetFps,
+    ),
     chargeControl: normalizeChargeControl(raw.chargeControl ?? DEFAULT_PHONE.chargeControl),
   };
 }

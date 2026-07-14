@@ -139,6 +139,182 @@ function escapeAttr(value) {
   return String(value ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
+const VIDEO_DOWNSAMPLE_FPS = [1, 2, 5, 10, 15, 30];
+
+function formatFps(fps) {
+  if (fps == null || !Number.isFinite(Number(fps))) return 'Unknown FPS';
+  const n = Number(fps);
+  return Number.isInteger(n) ? `${n} fps` : `${n.toFixed(2).replace(/\.?0+$/, '')} fps`;
+}
+
+/** Always show size in MB for video clips (e.g. "12.4 MB"). */
+function formatSizeMb(bytes) {
+  const n = Number(bytes);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatClipStats(clip) {
+  const parts = [];
+  const size = formatSizeMb(clip?.size);
+  if (size) parts.push(size);
+  if (clip?.fps != null && Number.isFinite(Number(clip.fps))) parts.push(formatFps(clip.fps));
+  return parts.join(' · ') || '—';
+}
+
+function formatClipPickLabel(clip, index) {
+  const stats = formatClipStats(clip);
+  return `Clip ${index + 1}: ${clip.name}${stats && stats !== '—' ? ` · ${stats}` : ''}`;
+}
+
+function downsampleOptionsHtml(currentFps) {
+  const current = Number(currentFps);
+  const hasCurrent = Number.isFinite(current) && current > 0;
+  const options = VIDEO_DOWNSAMPLE_FPS.filter((fps) => !hasCurrent || fps < current - 0.05);
+  if (!options.length) {
+    return '<option value="">Already at lowest rate</option>';
+  }
+  return options.map((fps, i) => (
+    `<option value="${fps}" ${i === 0 ? 'selected' : ''}>${fps} fps</option>`
+  )).join('');
+}
+
+function renderVideoFpsPanel(clip, { idPrefix = 'gallery-video' } = {}) {
+  const currentLabel = formatClipStats(clip);
+  const disabled = !clip?.path;
+  const options = downsampleOptionsHtml(clip?.fps);
+  const noOptions = !VIDEO_DOWNSAMPLE_FPS.some((fps) => {
+    const current = Number(clip?.fps);
+    return !Number.isFinite(current) || fps < current - 0.05;
+  });
+
+  return `
+    <div class="gallery-video-fps-panel" data-clip-path="${escapeAttr(clip?.path || '')}">
+      <div class="gallery-video-fps-header">
+        <h4>Video FPS</h4>
+        <span class="gallery-video-fps-current">${currentLabel}</span>
+      </div>
+      <div class="gallery-video-fps-row">
+        <label for="${idPrefix}-fps-select" class="gallery-video-fps-label">Downsample to</label>
+        <select id="${idPrefix}-fps-select" class="gallery-video-fps-select" ${disabled || noOptions ? 'disabled' : ''}>
+          ${options}
+        </select>
+        <button type="button" class="btn btn-primary btn-sm gallery-video-fps-apply" ${disabled || noOptions ? 'disabled' : ''}>
+          Apply
+        </button>
+      </div>
+      <p class="gallery-video-fps-hint">Re-encodes this clip in place. Duration stays the same.</p>
+    </div>`;
+}
+
+function updateVideoFileMeta(filePath, patch) {
+  const apply = (file) => {
+    if (!file || file.path !== filePath) return;
+    Object.assign(file, patch);
+  };
+
+  allFiles.forEach(apply);
+  filteredFiles.forEach((file) => {
+    apply(file);
+    if (file.type === 'recording' && Array.isArray(file.videos)) {
+      file.videos.forEach((clip) => {
+        if (clip.path === filePath) Object.assign(clip, patch);
+      });
+      if (file.videos.length) {
+        file.size = file.videos.reduce((sum, v) => sum + (v.size || 0), 0);
+      }
+    }
+  });
+}
+
+async function applyVideoFpsDownsample(clipPath, targetFps, {
+  videoEl = null,
+  panel = null,
+  onUpdated = null,
+} = {}) {
+  if (!clipPath || !targetFps) return;
+
+  const applyBtn = panel?.querySelector('.gallery-video-fps-apply');
+  const select = panel?.querySelector('.gallery-video-fps-select');
+  if (applyBtn) applyBtn.disabled = true;
+  if (select) select.disabled = true;
+
+  try {
+    const result = await apiFetch('/api/files/video-fps', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: clipPath, targetFps }),
+    });
+
+    updateVideoFileMeta(clipPath, {
+      fps: result.fps,
+      size: result.size,
+      modified: result.modified || new Date().toISOString(),
+      thumbPath: result.thumbPath ?? undefined,
+    });
+
+    if (videoEl) {
+      const wasPaused = videoEl.paused;
+      const t = videoEl.currentTime || 0;
+      videoEl.src = `${fileApiUrl(clipPath)}?t=${Date.now()}`;
+      videoEl.addEventListener('loadedmetadata', () => {
+        try { videoEl.currentTime = Math.min(t, videoEl.duration || t); } catch { /* ignore */ }
+        if (!wasPaused) videoEl.play?.();
+      }, { once: true });
+    }
+
+    renderGrid();
+    onUpdated?.(result);
+    showToast(
+      result.skipped
+        ? (result.message || 'Already at that FPS')
+        : `Reduced clip to ${formatFps(result.fps)}`,
+      result.skipped ? 'info' : 'success',
+    );
+    return result;
+  } catch (err) {
+    showToast(err.message, 'error');
+    if (applyBtn) applyBtn.disabled = false;
+    if (select) select.disabled = false;
+    return null;
+  }
+}
+
+function bindVideoFpsPanel(root, getClip, { videoEl = null, onUpdated = null } = {}) {
+  const panel = root.querySelector('.gallery-video-fps-panel');
+  if (!panel) return;
+
+  panel.querySelector('.gallery-video-fps-apply')?.addEventListener('click', async () => {
+    const clip = getClip();
+    const select = panel.querySelector('.gallery-video-fps-select');
+    const targetFps = Number(select?.value) || 0;
+    if (!clip?.path || !targetFps) return;
+    await applyVideoFpsDownsample(clip.path, targetFps, {
+      videoEl,
+      panel,
+      onUpdated: (result) => {
+        refreshVideoFpsPanel(panel, { ...clip, fps: result.fps, size: result.size });
+        onUpdated?.(result);
+      },
+    });
+  });
+}
+
+function refreshVideoFpsPanel(panel, clip) {
+  if (!panel) return;
+  panel.dataset.clipPath = clip?.path || '';
+  const current = panel.querySelector('.gallery-video-fps-current');
+  if (current) current.textContent = formatClipStats(clip);
+  const select = panel.querySelector('.gallery-video-fps-select');
+  const applyBtn = panel.querySelector('.gallery-video-fps-apply');
+  if (select) {
+    select.innerHTML = downsampleOptionsHtml(clip?.fps);
+    const noOptions = select.options.length === 1 && !select.options[0].value;
+    select.disabled = !clip?.path || noOptions;
+    if (applyBtn) applyBtn.disabled = select.disabled;
+  }
+}
+
 function findGalleryCard(itemPath) {
   const grid = document.getElementById('gallery-grid');
   if (!grid || !itemPath) return null;
@@ -438,6 +614,7 @@ function renderGrid() {
             <div class="gallery-card-meta">
               <span>${formatBytes(file.size)}</span>
               <span class="badge badge-muted">${isVideoRec ? 'Video' : 'Recording'}</span>
+              ${isVideoRec && file.videos?.[0]?.fps != null ? `<span>${formatFps(file.videos[0].fps)}</span>` : ''}
             </div>
           </div>
         </div>`;
@@ -461,6 +638,7 @@ function renderGrid() {
           <div class="gallery-card-name" title="${file.name}">${file.name}</div>
           <div class="gallery-card-meta">
             <span>${formatBytes(file.size)}</span>
+            ${file.type === 'video' && file.fps != null ? `<span>${formatFps(file.fps)}</span>` : ''}
             ${isProcessed ? '<span class="badge badge-success">Processed</span>' : ''}
           </div>
         </div>
@@ -665,9 +843,10 @@ function openLightbox(index) {
     <aside class="lightbox-sidebar glass">
       <div class="lightbox-sidebar-header">
         <h3>${file.name}</h3>
-        <p class="lightbox-file-meta">${formatBytes(file.size)} · ${formatDate(file.modified)}</p>
+        <p class="lightbox-file-meta">${formatBytes(file.size)} · ${formatDate(file.modified)}${file.type === 'video' && file.fps != null ? ` · ${formatFps(file.fps)}` : ''}</p>
         <button type="button" class="btn btn-danger btn-sm lightbox-trash-btn" data-trash-path="${file.path || file.name}" data-trash-label="${file.name.replace(/"/g, '&quot;')}">Move to trash</button>
       </div>
+      ${file.type === 'video' ? renderVideoFpsPanel(file, { idPrefix: 'gallery-clip' }) : ''}
       <div class="lightbox-analysis">
         <h4 class="lightbox-analysis-title">AI Analysis</h4>
         <div class="lightbox-analysis-body">
@@ -688,6 +867,18 @@ function openLightbox(index) {
   }
 
   bindLightboxInteractions(lb, file);
+
+  if (file.type === 'video') {
+    bindVideoFpsPanel(lb, () => file, {
+      videoEl: lb.querySelector('video'),
+      onUpdated: (result) => {
+        const meta = lb.querySelector('.lightbox-file-meta');
+        if (meta) {
+          meta.textContent = `${formatBytes(result.size ?? file.size)} · ${formatDate(file.modified)} · ${formatFps(result.fps)}`;
+        }
+      },
+    });
+  }
 
   lb.querySelector('.lightbox-trash-btn')?.addEventListener('click', () => {
     trashItem(file.path || file.name, file.name);
@@ -737,19 +928,20 @@ function openVideoRecordingLightbox(index) {
     <aside class="lightbox-sidebar glass">
       <div class="lightbox-sidebar-header">
         <h3>${file.name}</h3>
-        <p class="lightbox-file-meta">${videos.length} video clip${videos.length === 1 ? '' : 's'} · ${formatBytes(file.size)} · ${formatDate(file.modified)}</p>
+        <p class="lightbox-file-meta lightbox-recording-meta">${videos.length} video clip${videos.length === 1 ? '' : 's'} · ${formatBytes(file.size)} · ${formatDate(file.modified)}</p>
         <div class="lightbox-trash-actions">
-          <a class="btn btn-ghost btn-sm" href="${fileApiUrl(videos[0].path)}" download="${videos[0].name}">Download clip</a>
+          <a class="btn btn-ghost btn-sm rp-download" href="${fileApiUrl(videos[0].path)}" download="${videos[0].name}">Download clip</a>
           <button type="button" class="btn btn-danger btn-sm lightbox-trash-recording-btn" data-trash-path="${file.path}" data-trash-label="${file.name.replace(/"/g, '&quot;')}">Delete entire recording</button>
         </div>
       </div>
+      ${renderVideoFpsPanel(videos[0], { idPrefix: 'gallery-rec-clip' })}
       <div class="lightbox-analysis">
         <h4>Clips</h4>
         <ul class="recording-video-list">
           ${videos.map((v, i) => `
             <li>
               <button type="button" class="btn btn-ghost btn-sm recording-video-pick" data-clip-index="${i}">
-                Clip ${i + 1}: ${v.name}
+                ${formatClipPickLabel(v, i)}
               </button>
             </li>`).join('')}
         </ul>
@@ -760,11 +952,19 @@ function openVideoRecordingLightbox(index) {
 
   const videoEl = lb.querySelector('.rp-video');
   const counter = lb.querySelector('.rp-counter');
+  const downloadLink = lb.querySelector('.rp-download');
+  const fpsPanel = lb.querySelector('.gallery-video-fps-panel');
 
   function showClip(i) {
     clipIndex = Math.max(0, Math.min(i, videos.length - 1));
-    videoEl.src = `${fileApiUrl(videos[clipIndex].path)}`;
+    const clip = videos[clipIndex];
+    videoEl.src = `${fileApiUrl(clip.path)}`;
     counter.textContent = `${clipIndex + 1} / ${videos.length}`;
+    if (downloadLink) {
+      downloadLink.href = fileApiUrl(clip.path);
+      downloadLink.setAttribute('download', clip.name);
+    }
+    refreshVideoFpsPanel(fpsPanel, clip);
     videoEl.play?.();
   }
 
@@ -772,6 +972,22 @@ function openVideoRecordingLightbox(index) {
   lb.querySelector('.rp-next')?.addEventListener('click', () => showClip(clipIndex + 1));
   lb.querySelectorAll('.recording-video-pick').forEach((btn) => {
     btn.addEventListener('click', () => showClip(Number(btn.dataset.clipIndex) || 0));
+  });
+
+  bindVideoFpsPanel(lb, () => videos[clipIndex], {
+    videoEl,
+    onUpdated: (result) => {
+      const pickBtns = lb.querySelectorAll('.recording-video-pick');
+      const btn = pickBtns[clipIndex];
+      if (btn) {
+        const clip = videos[clipIndex];
+        btn.textContent = formatClipPickLabel(clip, clipIndex);
+      }
+      const meta = lb.querySelector('.lightbox-recording-meta');
+      if (meta) {
+        meta.textContent = `${videos.length} video clip${videos.length === 1 ? '' : 's'} · ${formatBytes(file.size)} · ${formatDate(file.modified)}`;
+      }
+    },
   });
 
   lb.querySelector('.lightbox-trash-recording-btn')?.addEventListener('click', () => {

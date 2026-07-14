@@ -14,6 +14,7 @@ const {
 const { installAdb } = require('../adbInstaller');
 const { getSettings, saveSettings, makeDeviceId, normalizeDevice } = require('../db/settingsStore');
 const { normalizeOrientation } = require('../utils/imageRotate');
+const { normalizeVideoTargetFps } = require('../utils/videoFps');
 const {
   recordHealthSample,
   getHealthHistory,
@@ -43,6 +44,7 @@ function sanitizePhoneConfig(phone) {
     defaultDeviceId: phone.defaultDeviceId || null,
     activeDeviceId: phone.activeDeviceId || null,
     frameRotation: phone.frameRotation || 0,
+    videoTargetFps: phone.videoTargetFps || 0,
     chargeControl: phone.chargeControl || normalizeChargeControl(),
   };
 }
@@ -324,6 +326,9 @@ router.post('/phone/config', (req, res) => {
         ...(incoming.address !== undefined ? { address: String(incoming.address).trim() } : {}),
         ...(incoming.frameRotation !== undefined
           ? { frameRotation: normalizeOrientation(incoming.frameRotation) }
+          : {}),
+        ...(incoming.videoTargetFps !== undefined
+          ? { videoTargetFps: normalizeVideoTargetFps(incoming.videoTargetFps) }
           : {}),
         ...(incoming.chargeControl !== undefined
           ? { chargeControl: normalizeChargeControl(incoming.chargeControl) }
