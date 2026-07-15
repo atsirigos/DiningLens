@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { isVideoMetaName } = require('./videoMeta');
 const { isVideoThumbName } = require('./videoThumb');
+const { isVideoEncodeTempName } = require('./videoFps');
 
 const SUPPORTED_EXTENSIONS = new Set([
   '.jpg', '.jpeg', '.png', '.webp', '.mp4', '.mov',
@@ -36,8 +37,8 @@ function scanDirectory(dir, baseDir = dir) {
 
     const ext = path.extname(entry.name).toLowerCase();
     if (!SUPPORTED_EXTENSIONS.has(ext)) continue;
-    // Sidecar posters / metadata — not standalone gallery items.
-    if (isVideoThumbName(entry.name) || isVideoMetaName(entry.name)) continue;
+    // Sidecar posters / metadata / in-progress encodes — not gallery items.
+    if (isVideoThumbName(entry.name) || isVideoMetaName(entry.name) || isVideoEncodeTempName(entry.name)) continue;
 
     const stat = fs.statSync(fullPath);
     const relativePath = path.relative(baseDir, fullPath).split(path.sep).join('/');

@@ -166,6 +166,7 @@ function scanTrashDirectory(dir, baseDir = dir) {
     const ext = path.extname(entry.name).toLowerCase();
     if (!SUPPORTED_EXTENSIONS.has(ext)) continue;
     if (/\.thumb\.(jpe?g|png|webp)$/i.test(entry.name)) continue;
+    if (/\.fps\d+\.tmp\.(mp4|mov)$/i.test(entry.name)) continue;
 
     const stat = fs.statSync(fullPath);
     const relativePath = path.relative(baseDir, fullPath).split(path.sep).join('/');

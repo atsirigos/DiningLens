@@ -18,6 +18,11 @@ const ALLOWED_VIDEO_TARGET_FPS = [0, 1, 2, 5, 10, 15, 30];
 /** @type {Map<string, object>} */
 const fpsJobs = new Map();
 
+/** Match leftover ffmpeg targets like `video_002.mp4.fps5.tmp.mp4`. */
+function isVideoEncodeTempName(filename) {
+  return /\.fps\d+\.tmp\.(mp4|mov)$/i.test(String(filename || ''));
+}
+
 function getFfmpegPath() {
   try {
     // eslint-disable-next-line global-require, import/no-unresolved
@@ -250,6 +255,13 @@ async function downsampleVideoToFps(absoluteVideoPath, targetFps, { onProgress =
   const priorAtime = priorStat.atime;
 
   const tmpPath = `${videoPath}.fps${fps}.tmp.mp4`;
+  // Drop any orphan from a previous interrupted encode.
+  try {
+    if (fs.existsSync(tmpPath)) await fsPromises.unlink(tmpPath);
+  } catch {
+    /* ignore */
+  }
+
   try {
     await runFfmpegWithProgress(ffmpegPath, [
       '-y',
@@ -391,6 +403,7 @@ function startFpsDownsampleJob({
 module.exports = {
   ALLOWED_VIDEO_TARGET_FPS,
   normalizeVideoTargetFps,
+  isVideoEncodeTempName,
   probeVideoFps,
   probeVideoMeta,
   downsampleVideoToFps,

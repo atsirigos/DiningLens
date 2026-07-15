@@ -316,16 +316,25 @@ async function pullVideoSegment(activeSession, remotePath, segmentIndex) {
       throw new Error(message);
     }
 
-    // Lock capture time on first successful pull (mtime at pull ≈ capture).
+    // Lock capture time from when this clip was recorded on-device (not pull time).
     try {
       const existingMeta = await readVideoMeta(localPath);
       if (!existingMeta?.capturedAt) {
-        const pulledStat = await fs.stat(localPath);
+        const times = activeSession.segmentTimes?.[segmentIndex];
+        const capturedAtIso = times?.endedAt
+          || times?.startedAt
+          || (await fs.stat(localPath)).mtime.toISOString();
         await writeVideoMeta(localPath, {
-          capturedAt: pulledStat.mtime.toISOString(),
+          capturedAt: capturedAtIso,
           sessionId: activeSession.sessionId,
           segmentIndex,
         });
+        try {
+          const capturedAt = new Date(capturedAtIso);
+          await fs.utimes(localPath, capturedAt, capturedAt);
+        } catch {
+          /* ignore */
+        }
       }
     } catch (err) {
       console.warn(`[recording] could not write capture meta for ${file}:`, err.message);
@@ -483,6 +492,7 @@ async function startNextVideoSegment() {
     if (!session.remoteVideoPaths.includes(remotePath)) {
       session.remoteVideoPaths.push(remotePath);
     }
+    session.videoSegments = Math.max(session.videoSegments || 0, segmentIndex);
     console.log(
       `[recording] video segment ${segmentIndex} started `
       + `(limit ${timeLimitSec}s): ${remotePath}`,
@@ -490,12 +500,23 @@ async function startNextVideoSegment() {
 
     handle.sessionId = session.sessionId;
     handle.segmentIndex = segmentIndex;
+    if (!session.segmentTimes) session.segmentTimes = {};
+    session.segmentTimes[segmentIndex] = {
+      ...(session.segmentTimes[segmentIndex] || {}),
+      startedAt: new Date().toISOString(),
+      remotePath,
+    };
     if (session.status === 'recording') {
       clearPhase();
     }
 
     handle.exitPromise.then(async () => {
       if (!session || session.sessionId !== handle.sessionId) return;
+
+      if (session.segmentTimes?.[handle.segmentIndex] && !session.segmentTimes[handle.segmentIndex].endedAt) {
+        session.segmentTimes[handle.segmentIndex].endedAt = new Date().toISOString();
+      }
+
       if (session.status !== 'recording') return;
       if (screenRecordHandle !== handle) return;
 
@@ -505,7 +526,8 @@ async function startNextVideoSegment() {
       const stillRemaining = remainingVideoSeconds(session);
       let chainFailed = false;
 
-      // Start the next clip first to minimize dead air, then pull in the background.
+      // Chain the next clip only — wait until recording stops before any
+      // ADB pull / FPS postprocess so the phone stays focused on capture.
       if (stillRemaining >= 1) {
         try {
           videoSegmentChainPromise = startNextVideoSegment();
@@ -524,12 +546,6 @@ async function startNextVideoSegment() {
 
       if (!session || session.sessionId !== handle.sessionId) return;
       if (session.status !== 'recording') return;
-
-      enqueueVideoPull(session, handle.remotePath, handle.segmentIndex).catch(async () => {
-        if (session?.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-          await finalizeRecording('too_many_failures').catch(() => {});
-        }
-      });
 
       if (stillRemaining < 1) {
         await finalizeRecording('max_duration');
@@ -597,32 +613,36 @@ async function finalizeRecording(reason) {
         setPhase('stopping_recorder', 'Stopping phone screen recorder…');
         if (handleToStop) {
           await stopScreenRecord(handleToStop);
-          try {
-            setPhase('pulling_video', 'Downloading video from phone…');
-            await enqueueVideoPull(
-              activeSession,
-              handleToStop.remotePath,
-              handleToStop.segmentIndex
-                || segmentIndexFromRemotePath(handleToStop.remotePath, activeSession.videos.length + 1),
-            );
-          } catch (err) {
-            console.error('[recording] final in-progress video pull failed:', err.message);
+          const stoppedIndex = handleToStop.segmentIndex
+            || segmentIndexFromRemotePath(handleToStop.remotePath, activeSession.videos.length + 1);
+          if (!activeSession.segmentTimes) activeSession.segmentTimes = {};
+          if (!activeSession.segmentTimes[stoppedIndex]?.endedAt) {
+            activeSession.segmentTimes[stoppedIndex] = {
+              ...(activeSession.segmentTimes[stoppedIndex] || {}),
+              endedAt: new Date().toISOString(),
+              remotePath: handleToStop.remotePath,
+            };
           }
         }
 
-        setPhase('pulling_video', 'Downloading remaining video clips…');
-        await waitForVideoPulls();
+        const remotes = [...new Set(activeSession.remoteVideoPaths || [])];
+        const targetFps = normalizeVideoTargetFps(
+          activeSession.videoTargetFps ?? getSettings().phone?.videoTargetFps,
+        );
+        const transferLabel = targetFps > 0
+          ? 'Downloading and postprocessing'
+          : 'Downloading';
 
-        const pulledFiles = new Set((activeSession.videos || []).map((v) => v.file));
-        const remotes = activeSession.remoteVideoPaths || [];
         for (let i = 0; i < remotes.length; i += 1) {
           const segmentIndex = segmentIndexFromRemotePath(remotes[i], i + 1);
           const expectedFile = `video_${String(segmentIndex).padStart(3, '0')}.mp4`;
-          if (pulledFiles.has(expectedFile)) continue;
+          if ((activeSession.videos || []).some((v) => v.file === expectedFile)) continue;
           try {
-            setPhase('pulling_video', `Downloading video clip ${segmentIndex} from phone…`);
+            setPhase(
+              'pulling_video',
+              `${transferLabel} clip ${segmentIndex} of ${remotes.length}…`,
+            );
             await enqueueVideoPull(activeSession, remotes[i], segmentIndex);
-            pulledFiles.add(expectedFile);
           } catch (err) {
             console.error('[recording] final video pull failed:', err.message);
             activeSession.lastError = activeSession.lastError || err.message;
@@ -789,6 +809,7 @@ async function startRecording({ mode, intervalSeconds, maxMinutes, videoTargetFp
       videoTargetFps: recordingMode === MODE_VIDEO ? targetFps : 0,
       phoneFiles: [],
       remoteVideoPaths: [],
+      segmentTimes: {},
       lastError: null,
       errors: [],
       consecutiveFailures: 0,
