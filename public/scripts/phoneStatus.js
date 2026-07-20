@@ -19,7 +19,7 @@ const HEALTH_LEVEL_COLORS = {
 const CHART_TEXT = '#475569';
 const CHART_GRID = 'rgba(0, 0, 0, 0.06)';
 const CHART_HISTORY_DAYS = 7;
-const CHART_VIEW_WINDOW_SEC = 6 * 60 * 60;
+const CHART_VIEW_WINDOW_SEC = 1 * 60 * 60;
 const DAY_SEC = 24 * 60 * 60;
 const HOUR_SEC = 60 * 60;
 
@@ -192,7 +192,7 @@ function formatAxisTick(seconds) {
 
 function chartAxisTitle() {
   if (chartFollowLatest && chartViewWindowSeconds() >= CHART_VIEW_WINDOW_SEC * 0.99) {
-    return 'Last 6 hours';
+    return 'Last hour';
   }
   return 'Time';
 }
@@ -944,7 +944,7 @@ function renderContent() {
           <button type="button" class="btn btn-ghost btn-sm" id="phone-status-clear-chart">Clear graphs</button>
         </div>
         <p class="phone-health-chart-hint">
-          Showing the last 6 hours
+          Showing the last hour
           ${healthHistory.length ? ` · ${healthHistory.length} sample${healthHistory.length === 1 ? '' : 's'}` : ''}
           · up to ${CHART_HISTORY_DAYS} days retained.
           Drag a graph or use the slider to scroll earlier. Keep this tab open with auto-refresh (or open it daily) so samples accumulate.
