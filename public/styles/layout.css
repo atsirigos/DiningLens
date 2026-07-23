@@ -1418,6 +1418,32 @@
   background: linear-gradient(135deg, rgba(34, 197, 94, 0.06), transparent);
 }
 
+.phone-connected-offline {
+  border-color: var(--color-border);
+  background: var(--color-surface, transparent);
+}
+
+.phone-wifi-recovery {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.phone-wifi-recovery .form-group {
+  margin: 0.75rem 0;
+  max-width: 20rem;
+}
+
+.phone-recovery-steps {
+  margin: 0.5rem 0 0.75rem;
+}
+
+.phone-usb-status {
+  margin: 0.5rem 0 0.75rem;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
 .phone-connected-header {
   display: flex;
   align-items: center;

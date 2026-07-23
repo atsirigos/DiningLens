@@ -39,6 +39,60 @@ function connectionLabel(type) {
   return type === 'usb' ? 'USB' : 'Wi-Fi';
 }
 
+function getUsbRecoveryStatus() {
+  const usbDevices = (status?.detectedDevices || []).filter((d) => d.connectionType === 'usb');
+  const ready = usbDevices.find((d) => d.liveState === 'device');
+  if (ready) {
+    const label = ready.model || ready.serial;
+    return {
+      ready: true,
+      html: `${stateBadge('device')} USB ready — <code>${escapeHtml(label)}</code>`,
+    };
+  }
+
+  const unauthorized = usbDevices.find((d) => d.liveState === 'unauthorized');
+  if (unauthorized) {
+    return {
+      ready: false,
+      html: `${stateBadge('unauthorized')} Unlock the phone and tap <strong>Allow</strong> on the USB debugging prompt.`,
+    };
+  }
+
+  return {
+    ready: false,
+    html: `${stateBadge('offline')} No USB phone detected. Plug in a data cable and enable USB debugging.`,
+  };
+}
+
+function renderWifiRecoveryPanel(device) {
+  const savedAddr = device.address || device.serial || '';
+  const { host } = parseHostPort(savedAddr);
+  const usbStatus = getUsbRecoveryStatus();
+
+  return `
+    <div class="phone-wifi-recovery" data-device-id="${escapeHtml(device.id)}">
+      <h4 class="phone-subsection-title">Recover sticky Wi-Fi</h4>
+      <p class="phone-step-desc">
+        Pairing can expire. Plug in USB once to enable durable Wi-Fi ADB on port <code>5555</code>
+        (works until the phone reboots).
+      </p>
+      <ol class="phone-instructions phone-recovery-steps">
+        <li>Connect this phone to <strong>this computer</strong> with a USB data cable.</li>
+        <li>Enable <strong>USB debugging</strong> and tap <strong>Allow</strong> if prompted.</li>
+        <li>Confirm the phone&rsquo;s Wi-Fi IP below, then enable sticky Wi-Fi.</li>
+      </ol>
+      <p class="phone-usb-status" id="recover-usb-status">${usbStatus.html}</p>
+      <div class="form-group">
+        <label for="recover-wifi-host">Phone Wi-Fi IP</label>
+        <input type="text" id="recover-wifi-host" placeholder="e.g. 192.168.1.50" value="${escapeHtml(host)}">
+      </div>
+      <button type="button" class="btn btn-primary btn-sm" id="recover-wifi-btn" data-device-id="${escapeHtml(device.id)}">
+        Enable sticky Wi-Fi
+      </button>
+      <p id="recover-wifi-result" class="phone-step-result" hidden></p>
+    </div>`;
+}
+
 function renderAdbStep() {
   if (status?.adbAvailable) {
     return `
@@ -248,6 +302,9 @@ function renderRegisteredDevices() {
       : `
         ${!isActive ? `<button type="button" class="btn btn-ghost btn-sm" data-action="set-active" data-id="${d.id}">Set active</button>` : ''}
         ${!isDefault ? `<button type="button" class="btn btn-ghost btn-sm" data-action="set-default" data-id="${d.id}">Set default</button>` : ''}
+        ${d.connectionType === 'wifi' && d.liveState !== 'device'
+          ? `<button type="button" class="btn btn-ghost btn-sm" data-action="recover-wifi" data-id="${d.id}">Recover Wi-Fi</button>`
+          : ''}
         <button type="button" class="btn btn-ghost btn-sm" data-action="rename" data-id="${d.id}">Rename</button>
         <button type="button" class="btn btn-ghost btn-sm phone-danger-btn" data-action="remove" data-id="${d.id}">Remove</button>`;
 
@@ -322,9 +379,10 @@ function renderConnectedView() {
   if (!active) return '';
 
   const connected = active.connected || status?.connected;
+  const showRecovery = !connected && active.connectionType === 'wifi';
 
   return `
-    <div class="phone-connected card">
+    <div class="phone-connected card ${connected ? '' : 'phone-connected-offline'}">
       <div class="phone-connected-header">
         <h3>${connected ? 'Active device ready' : 'Active device offline'}</h3>
         <span class="badge ${connected ? 'badge-success' : 'badge-muted'}">${connected ? 'Connected' : 'Offline'}</span>
@@ -340,6 +398,7 @@ function renderConnectedView() {
       </div>
       <p id="snap-status" class="phone-snap-status"></p>
       <img id="snap-preview" class="phone-snap-preview" alt="Test photo preview" hidden>
+      ${showRecovery ? renderWifiRecoveryPanel(active) : ''}
     </div>`;
 }
 
@@ -390,9 +449,19 @@ function stopPolling() {
 
 function syncPolling() {
   stopPolling();
-  if (addMethod === 'usb' && status?.adbAvailable) {
+  const needsUsbPoll = addMethod === 'usb'
+    || Boolean(container()?.querySelector('.phone-wifi-recovery'));
+
+  if (needsUsbPoll && status?.adbAvailable) {
     pollTimer = setInterval(async () => {
       try {
+        const hostInput = document.getElementById('recover-wifi-host');
+        const preservedHost = hostInput?.value;
+        const resultEl = document.getElementById('recover-wifi-result');
+        const preservedResult = resultEl && !resultEl.hidden
+          ? { text: resultEl.textContent, isError: resultEl.classList.contains('phone-inline-error') }
+          : null;
+
         await loadStatus();
 
         const detectedContainer = container()?.querySelector('.phone-detected-list');
@@ -424,6 +493,14 @@ function syncPolling() {
           if (newConnected) {
             connectedCard.replaceWith(newConnected);
             bindSnapEvents();
+            bindRecoverWifiEvents();
+            if (preservedHost != null) {
+              const nextHost = document.getElementById('recover-wifi-host');
+              if (nextHost) nextHost.value = preservedHost;
+            }
+            if (preservedResult) {
+              setStepResult('recover-wifi-result', preservedResult.text, preservedResult.isError);
+            }
           } else {
             connectedCard.remove();
           }
@@ -434,6 +511,7 @@ function syncPolling() {
           if (newConnected) {
             container()?.querySelector('.phone-wizard')?.insertAdjacentElement('afterbegin', newConnected);
             bindSnapEvents();
+            bindRecoverWifiEvents();
           }
         }
       } catch {
@@ -514,6 +592,17 @@ async function removeDevice(id) {
   render();
 }
 
+async function recoverWifi({ deviceId, host } = {}) {
+  const payload = {};
+  if (deviceId) payload.deviceId = deviceId;
+  if (host) payload.host = host;
+
+  return apiFetch('/api/phone/recover-wifi', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 function bindUsbDetectEvents() {
   container()?.querySelectorAll('.phone-add-usb-btn').forEach((btn) => {
     btn.addEventListener('click', async () => {
@@ -564,6 +653,18 @@ function bindDeviceTableEvents() {
             return;
           }
           await renameDevice(id, name);
+        } else if (action === 'recover-wifi') {
+          const device = status?.registeredDevices?.find((d) => d.id === id);
+          const { host } = parseHostPort(device?.address || device?.serial || '');
+          btn.disabled = true;
+          try {
+            const result = await recoverWifi({ deviceId: id, host: host || undefined });
+            showToast(result.message || 'Sticky Wi-Fi enabled', 'success');
+            await loadStatus();
+            render();
+          } finally {
+            btn.disabled = false;
+          }
         } else if (action === 'remove') {
           await removeDevice(id);
         }
@@ -571,6 +672,38 @@ function bindDeviceTableEvents() {
         showToast(err.message, 'error');
       }
     });
+  });
+}
+
+function bindRecoverWifiEvents() {
+  document.getElementById('recover-wifi-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('recover-wifi-btn');
+    const host = document.getElementById('recover-wifi-host')?.value?.trim() || '';
+    const deviceId = btn?.dataset.deviceId;
+
+    if (!host) {
+      setStepResult('recover-wifi-result', 'Enter the phone\'s Wi-Fi IP address.', true);
+      return;
+    }
+
+    btn.disabled = true;
+    setStepResult('recover-wifi-result', 'Enabling sticky Wi-Fi via USB…');
+
+    try {
+      const result = await recoverWifi({ deviceId, host });
+      setStepResult(
+        'recover-wifi-result',
+        result.message || `Sticky Wi-Fi enabled at ${result.address}`
+      );
+      showToast('Sticky Wi-Fi enabled', 'success');
+      await loadStatus();
+      render();
+    } catch (err) {
+      setStepResult('recover-wifi-result', err.message, true);
+      showToast(err.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
   });
 }
 
@@ -729,6 +862,7 @@ function bindEvents() {
   bindUsbDetectEvents();
   bindDeviceTableEvents();
   bindSnapEvents();
+  bindRecoverWifiEvents();
   bindChargeControlEvents();
 }
 

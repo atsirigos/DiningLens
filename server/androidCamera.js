@@ -241,6 +241,44 @@ async function connectDevice(host, port) {
   return { address: addr, serial: addr, message: out };
 }
 
+async function enableStickyWifiAdb({ host, port = 5555 } = {}) {
+  const hostStr = String(host || '').trim();
+  const portNum = Number(port) || 5555;
+
+  if (!hostStr) {
+    throw new Error('Host IP is required.');
+  }
+
+  const liveDevices = await listDevices();
+  const usbDevices = liveDevices.filter((d) => d.connectionType === 'usb');
+  const unauthorized = usbDevices.find((d) => d.state === 'unauthorized');
+  if (unauthorized) {
+    throw new Error(
+      'USB device is unauthorized. Unlock the phone and tap Allow on the USB debugging prompt.'
+    );
+  }
+
+  const usbReady = usbDevices.find((d) => d.state === 'device');
+  if (!usbReady) {
+    throw new Error(
+      'No authorized USB phone detected. Plug the phone into this computer with a data cable and enable USB debugging.'
+    );
+  }
+
+  const tcpipOut = await adb(['-s', usbReady.serial, 'tcpip', String(portNum)], { timeout: 30000 });
+  // Brief settle so adbd restarts in TCP mode before we connect.
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
+  const connected = await connectDevice(hostStr, portNum);
+  return {
+    address: connected.address,
+    serial: connected.serial,
+    usbSerial: usbReady.serial,
+    message: [tcpipOut, connected.message].filter(Boolean).join(' ').trim()
+      || `Enabled sticky Wi-Fi ADB at ${connected.address}`,
+  };
+}
+
 async function disconnectAll() {
   const out = await adb(['disconnect']);
   return { message: out || 'Disconnected.' };
@@ -946,6 +984,7 @@ module.exports = {
   getActiveDevice,
   pairDevice,
   connectDevice,
+  enableStickyWifiAdb,
   disconnectAll,
   disconnectDevice,
   ensureConnected,

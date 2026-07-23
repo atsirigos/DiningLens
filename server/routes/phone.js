@@ -4,12 +4,15 @@ const {
   listDevices,
   pairDevice,
   connectDevice,
+  enableStickyWifiAdb,
   disconnectAll,
   disconnectDevice,
   takePhoto,
   getActiveDevice,
   ensureConnectedForDevice,
   getDeviceHealth,
+  findDevice,
+  getDefaultDevice,
 } = require('../androidCamera');
 const { installAdb } = require('../adbInstaller');
 const { getSettings, saveSettings, makeDeviceId, normalizeDevice } = require('../db/settingsStore');
@@ -555,6 +558,80 @@ router.post('/phone/disconnect', async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message || 'Disconnect failed' });
+  }
+});
+
+router.post('/phone/recover-wifi', async (req, res) => {
+  const { deviceId, host } = req.body || {};
+
+  try {
+    const existing = getSettings();
+    let target = null;
+
+    if (deviceId) {
+      target = findDevice(deviceId);
+      if (!target) {
+        return res.status(404).json({ error: 'Device not found' });
+      }
+    } else {
+      target = getActiveDevice() || getDefaultDevice();
+    }
+
+    if (!target) {
+      return res.status(400).json({ error: 'No device configured. Add a Wi-Fi device first.' });
+    }
+
+    if (target.connectionType !== 'wifi') {
+      return res.status(400).json({
+        error: `"${target.name}" is a USB device. Sticky Wi-Fi recovery is for Wi-Fi devices.`,
+      });
+    }
+
+    const savedAddr = target.address || target.serial || '';
+    const lastColon = savedAddr.lastIndexOf(':');
+    const savedHost = lastColon > 0 ? savedAddr.slice(0, lastColon) : savedAddr;
+    const hostStr = String(host || savedHost || '').trim();
+
+    if (!hostStr) {
+      return res.status(400).json({
+        error: 'Phone IP address is required. Enter the phone\'s Wi-Fi IP and try again.',
+      });
+    }
+
+    const stickyPort = 5555;
+    const result = await enableStickyWifiAdb({ host: hostStr, port: stickyPort });
+    const newAddress = result.address;
+
+    const devices = existing.phone.devices.map((d) => {
+      if (d.id !== target.id) return d;
+      return {
+        ...d,
+        connectionType: 'wifi',
+        serial: newAddress,
+        address: newAddress,
+      };
+    });
+
+    const saved = saveSettings({
+      ...existing,
+      phone: {
+        ...existing.phone,
+        devices,
+        address: newAddress,
+      },
+    });
+
+    const device = saved.phone.devices.find((d) => d.id === target.id);
+
+    res.json({
+      success: true,
+      address: newAddress,
+      usbSerial: result.usbSerial,
+      message: result.message || `Sticky Wi-Fi enabled at ${newAddress}`,
+      device,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Sticky Wi-Fi recovery failed' });
   }
 });
 
