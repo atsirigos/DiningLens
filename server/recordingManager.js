@@ -84,9 +84,12 @@ function parseMaxMinutes(value) {
 }
 
 function parseMode(value) {
-  const mode = String(value || MODE_TIMELAPSE).toLowerCase().trim();
+  const mode = String(value || MODE_VIDEO).toLowerCase().trim();
+  if (mode === MODE_TIMELAPSE || mode === 'photo' || mode === 'photos' || mode === 'frames') {
+    return MODE_TIMELAPSE;
+  }
   if (mode === MODE_VIDEO || mode === 'full' || mode === 'fullvideo') return MODE_VIDEO;
-  return MODE_TIMELAPSE;
+  return MODE_VIDEO;
 }
 
 function makeSessionId() {
@@ -146,7 +149,7 @@ function getPublicSession() {
 function idleStatus() {
   return {
     status: 'idle',
-    mode: MODE_TIMELAPSE,
+    mode: MODE_VIDEO,
     sessionId: null,
     startedAt: null,
     stoppedAt: null,

@@ -10,6 +10,8 @@ const MODE_VIDEO = 'video';
 
 let status = null;
 let phoneSettings = { frameRotation: 0, videoTargetFps: 0 };
+/** Last non-zero FPS choice so re-enabling postprocess restores it (default 5). */
+let lastPostprocessFps = 5;
 let pollTimer = null;
 let starting = false;
 let stopping = false;
@@ -17,9 +19,12 @@ let playbackIndex = 0;
 let playbackPlaying = false;
 let playbackTimer = null;
 let playbackFps = DEFAULT_PLAYBACK_FPS;
-let selectedMode = MODE_TIMELAPSE;
+let selectedMode = MODE_VIDEO;
 let selectedIntervalSeconds = DEFAULT_INTERVAL_SECONDS;
 let selectedMaxMinutes = DEFAULT_MAX_MINUTES;
+let storageInfo = null;
+let storageChart = null;
+let storagePollTimer = null;
 
 function playbackFrameMs() {
   return Math.max(50, Math.round(1000 / playbackFps));
@@ -114,7 +119,7 @@ function currentMode() {
     || status?.status === 'stopped'
     || status?.status === 'error'
   ) {
-    return status.mode || MODE_TIMELAPSE;
+    return status.mode || MODE_VIDEO;
   }
   return selectedMode;
 }
@@ -137,7 +142,7 @@ function getFormValues() {
   const maxInput = document.getElementById('recording-max-minutes');
   const modeInput = document.querySelector('input[name="recording-mode"]:checked');
   return {
-    mode: modeInput?.value || selectedMode || MODE_TIMELAPSE,
+    mode: modeInput?.value || selectedMode || MODE_VIDEO,
     intervalSeconds: Number(intervalInput?.value) || selectedIntervalSeconds || DEFAULT_INTERVAL_SECONDS,
     maxMinutes: Number(maxInput?.value) || selectedMaxMinutes || DEFAULT_MAX_MINUTES,
   };
@@ -152,10 +157,7 @@ function syncSelectedCaptureSettingsFromForm() {
 
 function syncSelectedCaptureSettingsFromStatus() {
   if (!status) return;
-  if (status.mode === MODE_VIDEO || status.mode === MODE_TIMELAPSE) {
-    selectedMode = status.mode === MODE_VIDEO ? MODE_VIDEO : MODE_TIMELAPSE;
-  }
-  // Only adopt server values for live/finished sessions — idle defaults are always 30/30.
+  // Only adopt server mode/interval for live/finished sessions — idle keeps UI defaults.
   if (
     status.status === 'recording'
     || status.status === 'starting'
@@ -163,6 +165,9 @@ function syncSelectedCaptureSettingsFromStatus() {
     || status.status === 'stopped'
     || status.status === 'error'
   ) {
+    if (status.mode === MODE_VIDEO || status.mode === MODE_TIMELAPSE) {
+      selectedMode = status.mode === MODE_VIDEO ? MODE_VIDEO : MODE_TIMELAPSE;
+    }
     if (Number.isFinite(status.intervalSeconds) && status.intervalSeconds > 0) {
       selectedIntervalSeconds = status.intervalSeconds;
     }
@@ -290,6 +295,196 @@ function togglePlayback() {
   else startPlayback();
 }
 
+function formatBytes(bytes) {
+  const n = Number(bytes);
+  if (!Number.isFinite(n) || n < 0) return '—';
+  if (n < 1024) return `${Math.round(n)} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = n / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const digits = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+  return `${value.toFixed(digits)} ${units[unit]}`;
+}
+
+function formatPct(part, total) {
+  if (!total || !Number.isFinite(part)) return '—';
+  const pct = (part / total) * 100;
+  if (pct > 0 && pct < 0.1) return '<0.1%';
+  if (pct < 10) return `${pct.toFixed(1)}%`;
+  return `${Math.round(pct)}%`;
+}
+
+function destroyStorageChart() {
+  if (storageChart) {
+    storageChart.destroy();
+    storageChart = null;
+  }
+}
+
+function renderStorageCard() {
+  if (!storageInfo) {
+    return `
+      <div class="card recording-storage" id="recording-storage-card">
+        <h3 class="recording-section-title">Local disk storage</h3>
+        <p class="recording-section-desc">Measuring disk usage…</p>
+      </div>`;
+  }
+
+  const { totalBytes, freeBytes, appBytes, nonAppBytes } = storageInfo;
+  const rows = [
+    { key: 'app', label: 'DiningLens', bytes: appBytes, className: 'recording-storage-swatch--app' },
+    { key: 'other', label: 'Other on disk', bytes: nonAppBytes, className: 'recording-storage-swatch--other' },
+    { key: 'free', label: 'Free', bytes: freeBytes, className: 'recording-storage-swatch--free' },
+  ];
+
+  return `
+    <div class="card recording-storage" id="recording-storage-card">
+      <div class="recording-status-header">
+        <h3 class="recording-section-title">Local disk storage</h3>
+        <span class="recording-playback-counter">${formatBytes(totalBytes)} total</span>
+      </div>
+      <p class="recording-section-desc">
+        DiningLens data (<code>data/</code>, <code>db/</code>, <code>captures/</code>, <code>processed/</code>)
+        compared with the rest of this drive and free space.
+      </p>
+      <div class="recording-storage-chart-wrap">
+        <canvas id="recording-storage-chart" aria-label="Disk storage breakdown"></canvas>
+      </div>
+      <ul class="recording-storage-legend">
+        ${rows.map((row) => `
+          <li>
+            <span class="recording-storage-swatch ${row.className}" aria-hidden="true"></span>
+            <span class="recording-storage-legend-label">${row.label}</span>
+            <span class="recording-storage-legend-value">
+              ${formatBytes(row.bytes)}
+              <span class="recording-storage-legend-pct">(${formatPct(row.bytes, totalBytes)})</span>
+            </span>
+          </li>`).join('')}
+      </ul>
+    </div>`;
+}
+
+function updateStorageChart() {
+  const canvas = document.getElementById('recording-storage-chart');
+  if (!canvas || !storageInfo || typeof Chart === 'undefined') return;
+
+  const { totalBytes, freeBytes, appBytes, nonAppBytes } = storageInfo;
+  const chartText = getComputedStyle(document.documentElement)
+    .getPropertyValue('--color-chart-text').trim() || '#475569';
+  const chartGrid = getComputedStyle(document.documentElement)
+    .getPropertyValue('--color-chart-grid').trim() || 'rgba(0, 0, 0, 0.06)';
+
+  const datasets = [
+    {
+      label: 'DiningLens',
+      data: [appBytes],
+      backgroundColor: '#0d9488',
+      borderWidth: 0,
+      barThickness: 28,
+    },
+    {
+      label: 'Other on disk',
+      data: [nonAppBytes],
+      backgroundColor: '#94a3b8',
+      borderWidth: 0,
+      barThickness: 28,
+    },
+    {
+      label: 'Free',
+      data: [freeBytes],
+      backgroundColor: '#cbd5e1',
+      borderWidth: 0,
+      barThickness: 28,
+    },
+  ];
+
+  const options = {
+    indexAxis: 'y',
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 500 },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          title: () => 'This drive',
+          label: (ctx) => {
+            const bytes = Number(ctx.raw) || 0;
+            return ` ${ctx.dataset.label}: ${formatBytes(bytes)} (${formatPct(bytes, totalBytes)})`;
+          },
+        },
+      },
+    },
+    scales: {
+      x: {
+        stacked: true,
+        min: 0,
+        max: totalBytes || undefined,
+        ticks: {
+          color: chartText,
+          callback: (value) => formatBytes(value),
+          maxTicksLimit: 5,
+        },
+        grid: { color: chartGrid },
+      },
+      y: {
+        stacked: true,
+        ticks: { display: false },
+        grid: { display: false },
+      },
+    },
+  };
+
+  if (storageChart) {
+    storageChart.data.datasets = datasets;
+    storageChart.options = options;
+    storageChart.update();
+    return;
+  }
+
+  storageChart = new Chart(canvas, {
+    type: 'bar',
+    data: { labels: [''], datasets },
+    options,
+  });
+}
+
+async function loadStorageInfo({ silent = false } = {}) {
+  try {
+    storageInfo = await apiFetch('/api/storage');
+    const card = document.getElementById('recording-storage-card');
+    if (card) {
+      const wrap = document.createElement('div');
+      wrap.innerHTML = renderStorageCard();
+      const next = wrap.firstElementChild;
+      destroyStorageChart();
+      card.replaceWith(next);
+      updateStorageChart();
+    }
+  } catch (err) {
+    console.error('storage info failed:', err);
+    if (!silent) showToast(err.message || 'Failed to read disk storage', 'error');
+  }
+}
+
+function stopStoragePolling() {
+  if (storagePollTimer) {
+    clearInterval(storagePollTimer);
+    storagePollTimer = null;
+  }
+}
+
+function startStoragePolling() {
+  stopStoragePolling();
+  storagePollTimer = setInterval(() => {
+    loadStorageInfo({ silent: true });
+  }, 60000);
+}
+
 function renderConfigCard() {
   const busy = isSessionBusy();
   const mode = currentMode();
@@ -312,24 +507,24 @@ function renderConfigCard() {
             <input
               type="radio"
               name="recording-mode"
-              value="${MODE_TIMELAPSE}"
-              ${mode === MODE_TIMELAPSE ? 'checked' : ''}
-            >
-            <span class="recording-mode-card">
-              <strong>Photo frames</strong>
-              <span>Interval still photos from the phone camera (existing timelapse).</span>
-            </span>
-          </label>
-          <label class="recording-mode-option">
-            <input
-              type="radio"
-              name="recording-mode"
               value="${MODE_VIDEO}"
               ${mode === MODE_VIDEO ? 'checked' : ''}
             >
             <span class="recording-mode-card">
               <strong>Full video</strong>
               <span>Continuous MP4 via ADB screenrecord (camera preview on screen). Clips auto-chain every 2 minutes.</span>
+            </span>
+          </label>
+          <label class="recording-mode-option">
+            <input
+              type="radio"
+              name="recording-mode"
+              value="${MODE_TIMELAPSE}"
+              ${mode === MODE_TIMELAPSE ? 'checked' : ''}
+            >
+            <span class="recording-mode-card">
+              <strong>Photo frames</strong>
+              <span>Interval still photos from the phone camera (existing timelapse).</span>
             </span>
           </label>
         </div>
@@ -349,19 +544,32 @@ function renderConfigCard() {
           >
         </div>
         <div class="form-group" id="recording-video-fps-group" ${mode === MODE_VIDEO ? '' : 'hidden'}>
-          <label for="recording-video-fps">Video postprocess FPS</label>
-          <select id="recording-video-fps" ${busy ? 'disabled' : ''}>
-            <option value="0" ${!phoneSettings.videoTargetFps ? 'selected' : ''}>Native (no change)</option>
-            <option value="1" ${phoneSettings.videoTargetFps === 1 ? 'selected' : ''}>1 fps</option>
-            <option value="2" ${phoneSettings.videoTargetFps === 2 ? 'selected' : ''}>2 fps</option>
-            <option value="5" ${phoneSettings.videoTargetFps === 5 ? 'selected' : ''}>5 fps</option>
-            <option value="10" ${phoneSettings.videoTargetFps === 10 ? 'selected' : ''}>10 fps</option>
-            <option value="15" ${phoneSettings.videoTargetFps === 15 ? 'selected' : ''}>15 fps</option>
-            <option value="30" ${phoneSettings.videoTargetFps === 30 ? 'selected' : ''}>30 fps</option>
-          </select>
-          <p class="form-hint" style="margin-top: 0.35rem; font-size: 0.8rem; color: var(--color-text-muted);">
-            Screenrecord cannot set FPS on the phone. After each clip is pulled, it can be re-encoded to this rate.
+          <label class="recording-postprocess-toggle">
+            <input
+              type="checkbox"
+              id="recording-video-postprocess"
+              ${phoneSettings.videoTargetFps > 0 ? 'checked' : ''}
+              ${busy ? 'disabled' : ''}
+            >
+            <span>Postprocess video after capture</span>
+          </label>
+          <p class="form-hint recording-postprocess-hint" style="margin-top: 0.35rem; font-size: 0.8rem; color: var(--color-text-muted);">
+            Off by default — clips are kept at the phone’s native screenrecord rate.
           </p>
+          <div id="recording-video-fps-params" ${phoneSettings.videoTargetFps > 0 ? '' : 'hidden'}>
+            <label for="recording-video-fps">Target FPS</label>
+            <select id="recording-video-fps" ${busy ? 'disabled' : ''}>
+              <option value="1" ${phoneSettings.videoTargetFps === 1 ? 'selected' : ''}>1 fps</option>
+              <option value="2" ${phoneSettings.videoTargetFps === 2 ? 'selected' : ''}>2 fps</option>
+              <option value="5" ${!phoneSettings.videoTargetFps || phoneSettings.videoTargetFps === 5 ? 'selected' : ''}>5 fps</option>
+              <option value="10" ${phoneSettings.videoTargetFps === 10 ? 'selected' : ''}>10 fps</option>
+              <option value="15" ${phoneSettings.videoTargetFps === 15 ? 'selected' : ''}>15 fps</option>
+              <option value="30" ${phoneSettings.videoTargetFps === 30 ? 'selected' : ''}>30 fps</option>
+            </select>
+            <p class="form-hint" style="margin-top: 0.35rem; font-size: 0.8rem; color: var(--color-text-muted);">
+              Screenrecord cannot set FPS on the phone. After each clip is pulled, it is re-encoded to this rate.
+            </p>
+          </div>
         </div>
         <div class="form-group">
           <label for="recording-max-minutes">Max recording length (minutes)</label>
@@ -670,6 +878,7 @@ function updateLiveStatus() {
 }
 
 function render() {
+  destroyStorageChart();
   container().innerHTML = `
     <div class="recording-panel">
       <div class="recording-notice card">
@@ -681,11 +890,13 @@ function render() {
         </p>
       </div>
       ${renderConfigCard()}
+      ${renderStorageCard()}
       ${renderStatusCard()}
       ${renderPlaybackCard()}
     </div>`;
 
   bindEvents();
+  updateStorageChart();
   if (!isVideoMode()) {
     showPlaybackFrame();
     syncPlaybackControls();
@@ -823,6 +1034,7 @@ function bindEvents() {
     } finally {
       stopping = false;
       render();
+      loadStorageInfo({ silent: true });
     }
   });
 
@@ -886,24 +1098,60 @@ function bindEvents() {
     }
   });
 
-  document.getElementById('recording-video-fps')?.addEventListener('change', async (e) => {
-    const videoTargetFps = Number(e.target.value) || 0;
-    try {
-      await apiFetch('/api/phone/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ videoTargetFps }),
-      });
-      phoneSettings.videoTargetFps = videoTargetFps;
+  async function persistVideoTargetFps(videoTargetFps, { toastOnSuccess = true } = {}) {
+    await apiFetch('/api/phone/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ videoTargetFps }),
+    });
+    phoneSettings.videoTargetFps = videoTargetFps;
+    if (videoTargetFps > 0) lastPostprocessFps = videoTargetFps;
+    if (toastOnSuccess) {
       showToast(
         videoTargetFps
           ? `Video will be postprocessed to ${videoTargetFps} fps`
-          : 'Video FPS postprocess disabled',
+          : 'Video postprocess disabled',
         'success',
       );
+    }
+  }
+
+  function syncVideoPostprocessUi() {
+    const enabled = Boolean(document.getElementById('recording-video-postprocess')?.checked);
+    const params = document.getElementById('recording-video-fps-params');
+    const hint = document.querySelector('.recording-postprocess-hint');
+    if (params) params.hidden = !enabled;
+    if (hint) hint.hidden = enabled;
+  }
+
+  document.getElementById('recording-video-postprocess')?.addEventListener('change', async (e) => {
+    const enabled = e.target.checked;
+    syncVideoPostprocessUi();
+    const fpsSelect = document.getElementById('recording-video-fps');
+    const nextFps = enabled
+      ? (Number(fpsSelect?.value) || lastPostprocessFps || 5)
+      : 0;
+    if (fpsSelect && enabled) fpsSelect.value = String(nextFps);
+    try {
+      await persistVideoTargetFps(nextFps);
     } catch (err) {
       showToast(err.message, 'error');
-      e.target.value = String(phoneSettings.videoTargetFps || 0);
+      e.target.checked = !enabled;
+      syncVideoPostprocessUi();
+    }
+  });
+
+  document.getElementById('recording-video-fps')?.addEventListener('change', async (e) => {
+    const videoTargetFps = Number(e.target.value) || 0;
+    if (!document.getElementById('recording-video-postprocess')?.checked) {
+      e.target.value = String(lastPostprocessFps || 5);
+      return;
+    }
+    try {
+      await persistVideoTargetFps(videoTargetFps);
+    } catch (err) {
+      showToast(err.message, 'error');
+      e.target.value = String(phoneSettings.videoTargetFps || lastPostprocessFps || 5);
     }
   });
 }
@@ -911,15 +1159,21 @@ function bindEvents() {
 export async function init() {
   container().innerHTML = '<div class="loading-center"><div class="loading-spinner"></div></div>';
   try {
-    const [settings] = await Promise.all([
+    const [settings, , storage] = await Promise.all([
       apiFetch('/api/settings'),
       loadStatus(),
+      apiFetch('/api/storage').catch(() => null),
     ]);
     phoneSettings = {
       frameRotation: settings.phone?.frameRotation || 0,
       videoTargetFps: Number(settings.phone?.videoTargetFps) || 0,
     };
+    if (phoneSettings.videoTargetFps > 0) {
+      lastPostprocessFps = phoneSettings.videoTargetFps;
+    }
+    if (storage) storageInfo = storage;
     render();
+    startStoragePolling();
   } catch (err) {
     container().innerHTML = `
       <div class="empty-state">
@@ -936,5 +1190,7 @@ export function refresh() {
 
 export function teardown() {
   stopPolling();
+  stopStoragePolling();
   stopPlayback();
+  destroyStorageChart();
 }

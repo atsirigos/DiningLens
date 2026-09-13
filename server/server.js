@@ -11,6 +11,7 @@ const usageRouter = require('./routes/usage');
 const phoneRouter = require('./routes/phone');
 const recordingRouter = require('./routes/recording');
 const trashRouter = require('./routes/trash');
+const storageRouter = require('./routes/storage');
 const { getDb } = require('./db/database');
 const { startChargeManager } = require('./chargeManager');
 
@@ -49,6 +50,7 @@ app.use('/api', usageRouter);
 app.use('/api', phoneRouter);
 app.use('/api', recordingRouter);
 app.use('/api', trashRouter);
+app.use('/api', storageRouter);
 
 app.listen(PORT, () => {
   console.log(`DiningLens server running at http://localhost:${PORT}`);

@@ -1720,6 +1720,89 @@
   color: var(--color-text-muted);
 }
 
+.recording-postprocess-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.recording-postprocess-toggle input {
+  margin-top: 0.15rem;
+  flex-shrink: 0;
+}
+
+#recording-video-fps-params {
+  margin-top: 0.75rem;
+}
+
+#recording-video-fps-params label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.recording-storage-chart-wrap {
+  height: 72px;
+  margin: 0 0 0.85rem;
+  position: relative;
+}
+
+.recording-storage-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.recording-storage-legend li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.85rem;
+}
+
+.recording-storage-swatch {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.recording-storage-swatch--app {
+  background: #0d9488;
+}
+
+.recording-storage-swatch--other {
+  background: #94a3b8;
+}
+
+.recording-storage-swatch--free {
+  background: #cbd5e1;
+}
+
+.recording-storage-legend-label {
+  color: var(--color-text);
+}
+
+.recording-storage-legend-value {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.recording-storage-legend-pct {
+  color: var(--color-text-muted);
+  margin-left: 0.25rem;
+}
+
 .recording-config-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
