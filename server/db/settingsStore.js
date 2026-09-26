@@ -19,6 +19,8 @@ const DEFAULT_PHONE = {
   frameRotation: 0,
   /** 0 = keep native screenrecord FPS; otherwise downsample after pull. */
   videoTargetFps: 0,
+  recordingIntervalSeconds: 30,
+  recordingMaxMinutes: 30,
   chargeControl: {
     enabled: true,
     stopAt: 80,
@@ -64,6 +66,12 @@ const DEFAULTS = {
   ai: { ...DEFAULT_AI },
   phone: { ...DEFAULT_PHONE },
 };
+
+function clampInt(value, min, max, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(parsed)));
+}
 
 function normalizePhone(phone) {
   const raw = phone || {};
@@ -123,6 +131,18 @@ function normalizePhone(phone) {
     frameRotation: normalizeOrientation(raw.frameRotation),
     videoTargetFps: normalizeVideoTargetFps(
       raw.videoTargetFps ?? DEFAULT_PHONE.videoTargetFps,
+    ),
+    recordingIntervalSeconds: clampInt(
+      raw.recordingIntervalSeconds,
+      5,
+      600,
+      DEFAULT_PHONE.recordingIntervalSeconds,
+    ),
+    recordingMaxMinutes: clampInt(
+      raw.recordingMaxMinutes,
+      1,
+      240,
+      DEFAULT_PHONE.recordingMaxMinutes,
     ),
     chargeControl: normalizeChargeControl(raw.chargeControl ?? DEFAULT_PHONE.chargeControl),
   };

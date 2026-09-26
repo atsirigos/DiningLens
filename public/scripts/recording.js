@@ -905,6 +905,18 @@ function render() {
   }
 }
 
+async function persistCaptureLimits({ intervalSeconds, maxMinutes } = {}) {
+  const body = {};
+  if (intervalSeconds !== undefined) body.recordingIntervalSeconds = intervalSeconds;
+  if (maxMinutes !== undefined) body.recordingMaxMinutes = maxMinutes;
+  if (!Object.keys(body).length) return;
+  await apiFetch('/api/phone/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
 function stopPolling() {
   if (pollTimer) {
     clearInterval(pollTimer);
@@ -966,11 +978,17 @@ function bindEvents() {
     selectedIntervalSeconds = Number(document.getElementById('recording-interval')?.value)
       || selectedIntervalSeconds
       || DEFAULT_INTERVAL_SECONDS;
+    persistCaptureLimits({ intervalSeconds: selectedIntervalSeconds }).catch((err) => {
+      showToast(err.message, 'error');
+    });
   });
   document.getElementById('recording-max-minutes')?.addEventListener('change', () => {
     selectedMaxMinutes = Number(document.getElementById('recording-max-minutes')?.value)
       || selectedMaxMinutes
       || DEFAULT_MAX_MINUTES;
+    persistCaptureLimits({ maxMinutes: selectedMaxMinutes }).catch((err) => {
+      showToast(err.message, 'error');
+    });
   });
 
   document.getElementById('recording-start-btn')?.addEventListener('click', async () => {
@@ -1171,6 +1189,19 @@ export async function init() {
     };
     if (phoneSettings.videoTargetFps > 0) {
       lastPostprocessFps = phoneSettings.videoTargetFps;
+    }
+    const sessionOwnsLimits = status && (
+      status.status === 'recording'
+      || status.status === 'starting'
+      || status.status === 'stopping'
+      || status.status === 'stopped'
+      || status.status === 'error'
+    );
+    if (!sessionOwnsLimits) {
+      const savedMax = Number(settings.phone?.recordingMaxMinutes);
+      const savedInterval = Number(settings.phone?.recordingIntervalSeconds);
+      if (Number.isFinite(savedMax) && savedMax > 0) selectedMaxMinutes = savedMax;
+      if (Number.isFinite(savedInterval) && savedInterval > 0) selectedIntervalSeconds = savedInterval;
     }
     if (storage) storageInfo = storage;
     render();

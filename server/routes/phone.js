@@ -48,6 +48,8 @@ function sanitizePhoneConfig(phone) {
     activeDeviceId: phone.activeDeviceId || null,
     frameRotation: phone.frameRotation || 0,
     videoTargetFps: phone.videoTargetFps || 0,
+    recordingIntervalSeconds: phone.recordingIntervalSeconds,
+    recordingMaxMinutes: phone.recordingMaxMinutes,
     chargeControl: phone.chargeControl || normalizeChargeControl(),
   };
 }
@@ -332,6 +334,12 @@ router.post('/phone/config', (req, res) => {
           : {}),
         ...(incoming.videoTargetFps !== undefined
           ? { videoTargetFps: normalizeVideoTargetFps(incoming.videoTargetFps) }
+          : {}),
+        ...(incoming.recordingIntervalSeconds !== undefined
+          ? { recordingIntervalSeconds: incoming.recordingIntervalSeconds }
+          : {}),
+        ...(incoming.recordingMaxMinutes !== undefined
+          ? { recordingMaxMinutes: incoming.recordingMaxMinutes }
           : {}),
         ...(incoming.chargeControl !== undefined
           ? { chargeControl: normalizeChargeControl(incoming.chargeControl) }

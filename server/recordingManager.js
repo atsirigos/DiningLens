@@ -18,7 +18,7 @@ const {
   SCREENRECORD_MAX_SECONDS,
   SCREENRECORD_REMOTE_DIR,
 } = require('./androidCamera');
-const { getSettings } = require('./db/settingsStore');
+const { getSettings, saveSettings } = require('./db/settingsStore');
 const { generateVideoThumbnail } = require('./utils/videoThumb');
 const { downsampleVideoToFps, normalizeVideoTargetFps } = require('./utils/videoFps');
 const { readVideoMeta, writeVideoMeta } = require('./utils/videoMeta');
@@ -189,7 +189,10 @@ function getBaseStatus() {
 
   const now = Date.now();
   const startedAtMs = session.startedAt ? Date.parse(session.startedAt) : now;
-  const elapsedMs = Math.max(0, now - startedAtMs);
+  const live = session.status === 'recording' || session.status === 'starting';
+  const stoppedAtMs = session.stoppedAt ? Date.parse(session.stoppedAt) : NaN;
+  const endMs = live || !Number.isFinite(stoppedAtMs) ? now : stoppedAtMs;
+  const elapsedMs = Math.max(0, endMs - startedAtMs);
   const remainingMs = session.status === 'recording'
     ? Math.max(0, session.maxDurationMs - elapsedMs)
     : 0;
@@ -751,8 +754,30 @@ async function startRecording({ mode, intervalSeconds, maxMinutes, videoTargetFp
   }
 
   const recordingMode = parseMode(mode);
-  const interval = parseIntervalSeconds(intervalSeconds);
-  const maxMins = parseMaxMinutes(maxMinutes);
+  const phoneSettings = getSettings().phone || {};
+  const hasInterval = intervalSeconds !== undefined && intervalSeconds !== null && intervalSeconds !== '';
+  const hasMax = maxMinutes !== undefined && maxMinutes !== null && maxMinutes !== '';
+  const interval = parseIntervalSeconds(
+    hasInterval ? intervalSeconds : phoneSettings.recordingIntervalSeconds,
+  );
+  const maxMins = parseMaxMinutes(
+    hasMax ? maxMinutes : phoneSettings.recordingMaxMinutes,
+  );
+  if (hasInterval || hasMax) {
+    const existing = getSettings();
+    saveSettings({
+      ...existing,
+      phone: {
+        ...existing.phone,
+        recordingIntervalSeconds: hasInterval
+          ? interval
+          : existing.phone?.recordingIntervalSeconds,
+        recordingMaxMinutes: hasMax
+          ? maxMins
+          : existing.phone?.recordingMaxMinutes,
+      },
+    });
+  }
   const intervalMs = interval * 1000;
   const maxDurationMs = maxMins * 60 * 1000;
   const targetFps = normalizeVideoTargetFps(

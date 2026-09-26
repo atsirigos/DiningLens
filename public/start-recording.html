@@ -676,6 +676,7 @@
     let stopping = false;
     let serverOnline = false;
     let lastPostprocessFps = 5;
+    let savedCapture = null;
 
     async function apiFetch(url, options = {}) {
       const res = await fetch(url, {
@@ -1231,6 +1232,32 @@
       input.addEventListener('change', syncModeUi);
     });
 
+    document.getElementById('interval-input')?.addEventListener('change', async (e) => {
+      const recordingIntervalSeconds = Number(e.target.value) || DEFAULT_INTERVAL;
+      try {
+        await apiFetch('/api/phone/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recordingIntervalSeconds }),
+        });
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+
+    document.getElementById('max-input')?.addEventListener('change', async (e) => {
+      const recordingMaxMinutes = Number(e.target.value) || DEFAULT_MAX_MINUTES;
+      try {
+        await apiFetch('/api/phone/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recordingMaxMinutes }),
+        });
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+
     document.getElementById('video-postprocess-input')?.addEventListener('change', async (e) => {
       const enabled = e.target.checked;
       syncVideoPostprocessUi();
@@ -1381,6 +1408,10 @@
         if (toggle) toggle.checked = fps > 0;
         if (fpsInput) fpsInput.value = String(fps > 0 ? fps : lastPostprocessFps || 5);
         syncVideoPostprocessUi();
+        savedCapture = {
+          interval: Number(settings.phone?.recordingIntervalSeconds) || DEFAULT_INTERVAL,
+          max: Number(settings.phone?.recordingMaxMinutes) || DEFAULT_MAX_MINUTES,
+        };
       } catch {
         /* use defaults */
       }
@@ -1389,6 +1420,15 @@
     async function init() {
       await waitForServer();
       await Promise.all([loadHealth(), loadRecordingStatus(), loadPhoneSettings()]);
+      const busy = status?.status === 'recording'
+        || status?.status === 'starting'
+        || status?.status === 'stopping';
+      if (!busy && savedCapture) {
+        const intervalInput = document.getElementById('interval-input');
+        const maxInput = document.getElementById('max-input');
+        if (intervalInput) intervalInput.value = String(savedCapture.interval);
+        if (maxInput) maxInput.value = String(savedCapture.max);
+      }
       startHealthPolling();
       syncControls();
     }
