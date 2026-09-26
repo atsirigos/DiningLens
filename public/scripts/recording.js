@@ -887,6 +887,7 @@ function render() {
           continues even if you close this tab. Make sure your phone is connected in
           Phone Configuration first. Full video records the phone screen (open the camera
           preview for the best meal view).
+          Start and stop from a phone at <a href="/remote">/remote</a>.
         </p>
       </div>
       ${renderConfigCard()}

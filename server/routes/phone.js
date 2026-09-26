@@ -449,6 +449,10 @@ router.delete('/phone/devices/:id', async (req, res) => {
       activeDeviceId = null;
     }
 
+    // An empty device list plus a leftover address is treated as legacy
+    // settings and migrated back into a device on every save.
+    const address = devices.length ? existing.phone.address : '';
+
     saveSettings({
       ...existing,
       phone: {
@@ -456,6 +460,7 @@ router.delete('/phone/devices/:id', async (req, res) => {
         devices,
         defaultDeviceId,
         activeDeviceId,
+        address,
       },
     });
 

@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#6b5ce7">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="DiningLens">
+  <title>DiningLens</title>
+  <link rel="icon" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      color-scheme: light;
+      --bg: #f4f6fa;
+      --surface: rgba(255, 255, 255, 0.94);
+      --border: rgba(0, 0, 0, 0.08);
+      --text: #1e293b;
+      --muted: #64748b;
+      --accent: #6b5ce7;
+      --accent-2: #e85d8a;
+      --success: #059669;
+      --danger: #dc2626;
+      --warning: #d97706;
+      --radius: 16px;
+      --font: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    html, body { min-height: 100%; }
+
+    body {
+      font-family: var(--font);
+      color: var(--text);
+      background: var(--bg);
+      background-image:
+        radial-gradient(ellipse at 20% 0%, rgba(124, 111, 247, 0.14) 0%, transparent 55%),
+        radial-gradient(ellipse at 90% 100%, rgba(247, 111, 155, 0.1) 0%, transparent 50%);
+      line-height: 1.4;
+    }
+
+    .app {
+      max-width: 28rem;
+      margin: 0 auto;
+      min-height: 100vh;
+      min-height: 100dvh;
+      padding:
+        max(1.1rem, env(safe-area-inset-top))
+        max(1rem, env(safe-area-inset-right))
+        max(1.25rem, env(safe-area-inset-bottom))
+        max(1rem, env(safe-area-inset-left));
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+
+    h1 {
+      font-size: 1.35rem;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .camera {
+      margin-top: 0.2rem;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .pill {
+      flex: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.35rem 0.7rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 0.78rem;
+      font-weight: 650;
+    }
+
+    .dot {
+      width: 0.5rem;
+      height: 0.5rem;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+
+    .pill--ready .dot { background: var(--success); }
+    .pill--recording .dot { background: var(--danger); animation: pulse 1.2s ease infinite; }
+    .pill--busy .dot { background: var(--warning); animation: pulse 1.2s ease infinite; }
+    .pill--offline .dot { background: var(--danger); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+
+    .action {
+      appearance: none;
+      border: 0;
+      width: 100%;
+      min-height: 4.75rem;
+      border-radius: 1.25rem;
+      font: inherit;
+      font-size: 1.45rem;
+      font-weight: 750;
+      letter-spacing: -0.02em;
+      color: #fff;
+      background: linear-gradient(135deg, var(--accent), #8577f0);
+      box-shadow: 0 10px 24px rgba(107, 92, 231, 0.28);
+      cursor: pointer;
+    }
+
+    .action:active:not(:disabled) { transform: translateY(1px); }
+
+    .action--stop {
+      background: linear-gradient(135deg, #ef4444, var(--danger));
+      box-shadow: 0 10px 24px rgba(220, 38, 38, 0.25);
+    }
+
+    .action:disabled {
+      cursor: default;
+      opacity: 0.55;
+      box-shadow: none;
+    }
+
+    .phase, .blocker, .error {
+      text-align: center;
+      font-size: 0.92rem;
+    }
+
+    .phase { color: var(--muted); min-height: 1.3rem; }
+    .blocker, .error { color: var(--danger); }
+
+    .progress {
+      height: 0.45rem;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.06);
+      overflow: hidden;
+    }
+
+    .progress > span {
+      display: block;
+      height: 100%;
+      width: 0;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.65rem;
+    }
+
+    .stat {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.8rem 0.9rem;
+    }
+
+    .stat-label {
+      display: block;
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 650;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .stat-value {
+      display: block;
+      margin-top: 0.15rem;
+      font-size: 1.35rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.03em;
+    }
+
+    .stats .stat:last-child { grid-column: 1 / -1; }
+
+    .options {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.85rem;
+      display: grid;
+      gap: 0.75rem;
+    }
+
+    .segment {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.4rem;
+    }
+
+    .segment button {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      font-weight: 650;
+      min-height: 2.75rem;
+      border-radius: 0.8rem;
+      cursor: pointer;
+    }
+
+    .segment button[aria-pressed="true"] {
+      background: rgba(107, 92, 231, 0.12);
+      border-color: rgba(107, 92, 231, 0.45);
+      color: var(--accent);
+    }
+
+    .segment button:disabled,
+    .minutes input:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+
+    .minutes {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+
+    .minutes span { font-weight: 650; font-size: 0.95rem; }
+
+    .minutes input {
+      width: 5.5rem;
+      min-height: 2.75rem;
+      border: 1px solid var(--border);
+      border-radius: 0.8rem;
+      background: #fff;
+      color: var(--text);
+      font: inherit;
+      font-weight: 700;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .hint {
+      margin-top: auto;
+      color: var(--muted);
+      font-size: 0.82rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <div>
+        <h1>DiningLens</h1>
+        <p class="camera" id="camera-line">Checking camera…</p>
+      </div>
+      <span class="pill" id="status-pill">
+        <span class="dot"></span>
+        <span id="status-label">Connecting</span>
+      </span>
+    </header>
+
+    <button type="button" class="action" id="action-btn" disabled>Start</button>
+    <p class="phase" id="phase"></p>
+    <p class="blocker" id="blocker" hidden></p>
+    <p class="error" id="error" hidden></p>
+    <div class="progress" aria-hidden="true"><span id="progress"></span></div>
+
+    <section class="stats" aria-live="polite">
+      <div class="stat">
+        <span class="stat-label">Elapsed</span>
+        <span class="stat-value" id="stat-elapsed">00:00</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Remaining</span>
+        <span class="stat-value" id="stat-remaining">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label" id="stat-count-label">Clips</span>
+        <span class="stat-value" id="stat-count">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Battery</span>
+        <span class="stat-value" id="stat-battery">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Temperature</span>
+        <span class="stat-value" id="stat-temp">—</span>
+      </div>
+    </section>
+
+    <section class="options">
+      <div class="segment" role="group" aria-label="Recording mode">
+        <button type="button" id="mode-video" aria-pressed="true">Video</button>
+        <button type="button" id="mode-frames" aria-pressed="false">Photo frames</button>
+      </div>
+      <label class="minutes">
+        <span>Max minutes</span>
+        <input type="number" id="max-minutes" min="1" max="240" step="1" inputmode="numeric" value="30">
+      </label>
+    </section>
+
+    <p class="hint">
+      Save this page on your phone: iPhone Share, then Add to Home Screen.
+      Android Chrome menu, then Add to Home screen.
+      Recording keeps going if you close this page.
+    </p>
+  </main>
+
+  <script>
+    const MODE_VIDEO = 'video';
+    const MODE_TIMELAPSE = 'timelapse';
+    const DEFAULT_MAX = 30;
+    const STORAGE_MODE = 'dininglens.remote.mode';
+    const STORAGE_MAX = 'dininglens.remote.maxMinutes';
+    const RECORDING_POLL_MS = 2500;
+    const PHASE_POLL_MS = 500;
+    const HEALTH_POLL_MS = 5000;
+
+    let status = null;
+    let phoneStatus = null;
+    let health = null;
+    let starting = false;
+    let stopping = false;
+    let selectedMode = MODE_VIDEO;
+    let selectedMax = DEFAULT_MAX;
+    let recordingTimer = null;
+    let healthTimer = null;
+    let serverReachable = true;
+
+    const actionBtn = document.getElementById('action-btn');
+    const maxInput = document.getElementById('max-minutes');
+
+    function loadPrefs() {
+      const mode = localStorage.getItem(STORAGE_MODE);
+      selectedMode = mode === MODE_TIMELAPSE ? MODE_TIMELAPSE : MODE_VIDEO;
+      const max = Number(localStorage.getItem(STORAGE_MAX));
+      selectedMax = Number.isFinite(max)
+        ? Math.min(240, Math.max(1, Math.round(max)))
+        : DEFAULT_MAX;
+    }
+
+    function savePrefs() {
+      localStorage.setItem(STORAGE_MODE, selectedMode);
+      localStorage.setItem(STORAGE_MAX, String(selectedMax));
+    }
+
+    async function apiFetch(url, options = {}) {
+      const res = await fetch(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(options.headers || {}),
+        },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || `Request failed (${res.status})`);
+      }
+      return data;
+    }
+
+    function formatDuration(ms) {
+      const totalSeconds = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      const parts = [];
+      if (hours > 0) parts.push(String(hours).padStart(2, '0'));
+      parts.push(String(minutes).padStart(2, '0'));
+      parts.push(String(seconds).padStart(2, '0'));
+      return parts.join(':');
+    }
+
+    function sessionBusy() {
+      return starting
+        || stopping
+        || status?.status === 'starting'
+        || status?.status === 'recording'
+        || status?.status === 'stopping';
+    }
+
+    function isRecording() {
+      return status?.status === 'recording';
+    }
+
+    function activeMode() {
+      if (sessionBusy() && (status?.mode === MODE_VIDEO || status?.mode === MODE_TIMELAPSE)) {
+        return status.mode;
+      }
+      return selectedMode;
+    }
+
+    function phoneReady() {
+      if (!phoneStatus?.adbAvailable || !phoneStatus.activeDevice) return false;
+      return phoneStatus.connected === true || phoneStatus.activeDevice.connected === true;
+    }
+
+    function cameraName() {
+      return health?.device?.name
+        || phoneStatus?.activeDevice?.name
+        || status?.deviceName
+        || '';
+    }
+
+    function blockerMessage() {
+      if (sessionBusy() || isRecording()) return '';
+      if (!phoneStatus) return '';
+      if (!phoneStatus.adbAvailable) return 'ADB is not available on the computer.';
+      if (!phoneStatus.activeDevice) return 'No camera is configured. Add one in Phone Configuration.';
+      if (!phoneReady()) return 'Camera is offline.';
+      return '';
+    }
+
+    function phaseText() {
+      if (status?.phaseMessage) return status.phaseMessage;
+      if (status?.status === 'starting' || starting) return 'Initializing recording…';
+      if (status?.status === 'stopping' || stopping) return 'Finalizing recording…';
+      return '';
+    }
+
+    function render() {
+      const recording = isRecording();
+      const busy = sessionBusy();
+      const mode = activeMode();
+      const video = mode === MODE_VIDEO;
+      const name = cameraName();
+      const ready = phoneReady();
+
+      if (!serverReachable) {
+        document.getElementById('status-pill').className = 'pill pill--offline';
+        document.getElementById('status-label').textContent = 'Offline';
+        document.getElementById('camera-line').textContent = 'Can’t reach the server';
+        actionBtn.disabled = true;
+        return;
+      }
+
+      const pill = document.getElementById('status-pill');
+      const label = document.getElementById('status-label');
+      let pillClass = 'pill';
+      let pillText = 'Offline';
+      if (recording) {
+        pillClass = 'pill pill--recording';
+        pillText = 'Recording';
+      } else if (status?.status === 'starting' || status?.status === 'stopping' || starting || stopping) {
+        pillClass = 'pill pill--busy';
+        pillText = status?.status === 'stopping' || stopping ? 'Stopping' : 'Starting';
+      } else if (ready) {
+        pillClass = 'pill pill--ready';
+        pillText = 'Ready';
+      } else if (!phoneStatus) {
+        pillClass = 'pill pill--busy';
+        pillText = 'Connecting';
+      }
+      pill.className = pillClass;
+      label.textContent = pillText;
+
+      document.getElementById('camera-line').textContent = name
+        ? `${name}${ready || recording ? '' : ' · offline'}`
+        : (phoneStatus ? 'No camera selected' : 'Checking camera…');
+
+      const stopMode = recording || status?.status === 'stopping' || stopping;
+      actionBtn.textContent = starting || status?.status === 'starting'
+        ? 'Starting…'
+        : stopping || status?.status === 'stopping'
+          ? 'Stopping…'
+          : stopMode
+            ? 'Stop'
+            : 'Start';
+      actionBtn.classList.toggle('action--stop', stopMode);
+      actionBtn.disabled = starting
+        || stopping
+        || status?.status === 'starting'
+        || status?.status === 'stopping'
+        || (!stopMode && !ready);
+
+      const phase = phaseText();
+      document.getElementById('phase').textContent = phase;
+
+      const blocker = blockerMessage();
+      const blockerEl = document.getElementById('blocker');
+      blockerEl.hidden = !blocker;
+      blockerEl.textContent = blocker;
+
+      const errorEl = document.getElementById('error');
+      const errorText = status?.lastError || '';
+      errorEl.hidden = !errorText;
+      errorEl.textContent = errorText;
+
+      const elapsed = status?.elapsedMs || 0;
+      const maxMs = status?.maxDurationMs || selectedMax * 60 * 1000;
+      const pct = recording && maxMs > 0
+        ? Math.min(100, Math.round((elapsed / maxMs) * 100))
+        : 0;
+      document.getElementById('progress').style.width = `${pct}%`;
+      document.getElementById('stat-elapsed').textContent = formatDuration(elapsed);
+      document.getElementById('stat-remaining').textContent = recording
+        ? formatDuration(status?.remainingMs || 0)
+        : '—';
+      document.getElementById('stat-count-label').textContent = video ? 'Clips' : 'Frames';
+      document.getElementById('stat-count').textContent = String(
+        video
+          ? (status?.videoSegments ?? status?.videos?.length ?? 0)
+          : (status?.framesCaptured ?? 0),
+      );
+
+      const battery = health?.battery;
+      document.getElementById('stat-battery').textContent = battery?.level == null
+        ? '—'
+        : `${battery.level}%${battery.charging ? ' +' : ''}`;
+      const temp = battery?.temperatureCelsius;
+      document.getElementById('stat-temp').textContent = Number.isFinite(temp)
+        ? `${temp.toFixed(1)}°C`
+        : '—';
+
+      document.getElementById('mode-video').setAttribute('aria-pressed', video ? 'true' : 'false');
+      document.getElementById('mode-frames').setAttribute('aria-pressed', video ? 'false' : 'true');
+      document.getElementById('mode-video').disabled = busy;
+      document.getElementById('mode-frames').disabled = busy;
+      maxInput.disabled = busy;
+      if (document.activeElement !== maxInput) {
+        const shownMax = busy && Number.isFinite(status?.maxMinutes)
+          ? status.maxMinutes
+          : selectedMax;
+        maxInput.value = String(shownMax);
+      }
+    }
+
+    function pollDelay() {
+      if (
+        starting
+        || stopping
+        || status?.status === 'starting'
+        || status?.status === 'stopping'
+      ) {
+        return PHASE_POLL_MS;
+      }
+      return RECORDING_POLL_MS;
+    }
+
+    function scheduleRecordingPoll() {
+      clearTimeout(recordingTimer);
+      recordingTimer = setTimeout(async () => {
+        await refreshRecording();
+        scheduleRecordingPoll();
+      }, pollDelay());
+    }
+
+    async function refreshRecording() {
+      try {
+        status = await apiFetch('/api/recording/status');
+        serverReachable = true;
+      } catch {
+        serverReachable = false;
+      }
+      render();
+    }
+
+    async function refreshHealth() {
+      try {
+        phoneStatus = await apiFetch('/api/phone/status');
+      } catch {
+        phoneStatus = null;
+      }
+
+      if (phoneReady()) {
+        try {
+          health = await apiFetch('/api/phone/health?refreshIntervalSec=5');
+        } catch {
+          health = null;
+        }
+      } else {
+        health = null;
+      }
+      render();
+    }
+
+    function setMode(mode) {
+      if (sessionBusy()) return;
+      selectedMode = mode;
+      savePrefs();
+      render();
+    }
+
+    document.getElementById('mode-video').addEventListener('click', () => setMode(MODE_VIDEO));
+    document.getElementById('mode-frames').addEventListener('click', () => setMode(MODE_TIMELAPSE));
+
+    maxInput.addEventListener('change', () => {
+      const value = Number(maxInput.value);
+      selectedMax = Number.isFinite(value)
+        ? Math.min(240, Math.max(1, Math.round(value)))
+        : DEFAULT_MAX;
+      maxInput.value = String(selectedMax);
+      savePrefs();
+    });
+
+    actionBtn.addEventListener('click', async () => {
+      if (isRecording()) {
+        stopping = true;
+        render();
+        try {
+          status = await apiFetch('/api/recording/stop', { method: 'POST' });
+        } catch (err) {
+          status = { ...(status || {}), lastError: err.message };
+        } finally {
+          stopping = false;
+          render();
+        }
+        return;
+      }
+
+      if (!phoneReady() || sessionBusy()) return;
+      starting = true;
+      render();
+      try {
+        status = await apiFetch('/api/recording/start', {
+          method: 'POST',
+          body: JSON.stringify({
+            mode: selectedMode,
+            maxMinutes: selectedMax,
+          }),
+        });
+      } catch (err) {
+        status = { ...(status || {}), status: 'error', lastError: err.message };
+      } finally {
+        starting = false;
+        render();
+      }
+    });
+
+    if (window.isSecureContext) {
+      const manifest = document.createElement('link');
+      manifest.rel = 'manifest';
+      manifest.href = '/manifest.webmanifest';
+      document.head.appendChild(manifest);
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      }
+    }
+
+    loadPrefs();
+    render();
+    refreshRecording().then(scheduleRecordingPoll);
+    refreshHealth();
+    healthTimer = setInterval(refreshHealth, HEALTH_POLL_MS);
+  </script>
+</body>
+</html>
