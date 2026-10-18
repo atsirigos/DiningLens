@@ -1597,6 +1597,11 @@
   background: rgba(255, 255, 255, 0.45);
 }
 
+.phone-wifi-recovery .phone-wifi-subsection + .phone-wifi-subsection,
+.phone-wifi-recovery .phone-sticky-recovery {
+  margin-top: 0.75rem;
+}
+
 .phone-subsection-title {
   margin: 0 0 0.65rem;
   font-size: 0.875rem;

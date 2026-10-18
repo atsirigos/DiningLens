@@ -4,6 +4,7 @@ const {
   listDevices,
   pairDevice,
   connectDevice,
+  reconnectWifiDevice,
   enableStickyWifiAdb,
   disconnectAll,
   disconnectDevice,
@@ -571,6 +572,62 @@ router.post('/phone/disconnect', async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message || 'Disconnect failed' });
+  }
+});
+
+router.post('/phone/reconnect', async (req, res) => {
+  const {
+    deviceId,
+    pairHost,
+    pairPort,
+    pairCode,
+    connectHost,
+    connectPort,
+  } = req.body || {};
+
+  try {
+    const result = await reconnectWifiDevice({
+      deviceId,
+      pairHost,
+      pairPort,
+      pairCode,
+      connectHost,
+      connectPort,
+    });
+
+    const existing = getSettings();
+    const targetId = result.deviceId;
+    const newAddress = result.address;
+    const devices = (existing.phone.devices || []).map((d) => {
+      if (d.id !== targetId) return d;
+      return {
+        ...d,
+        connectionType: 'wifi',
+        serial: newAddress,
+        address: newAddress,
+      };
+    });
+
+    const saved = saveSettings({
+      ...existing,
+      phone: {
+        ...existing.phone,
+        devices,
+        address: newAddress,
+      },
+    });
+
+    const device = saved.phone.devices.find((d) => d.id === targetId);
+
+    res.json({
+      success: true,
+      address: newAddress,
+      message: result.message || `Reconnected at ${newAddress}`,
+      attempted: result.attempted || [],
+      device,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Reconnect failed' });
   }
 });
 

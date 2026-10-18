@@ -6,6 +6,10 @@ let installError = null;
 let addMethod = 'wifi';
 let pollTimer = null;
 let renamingDeviceId = null;
+/** When set, keep the wireless re-pair form visible after a failed quick reconnect. */
+let reconnectShowPair = false;
+/** Device id whose reconnect panel should be focused (from the devices table). */
+let reconnectFocusDeviceId = null;
 
 const container = () => document.getElementById('phone-content');
 
@@ -68,28 +72,64 @@ function renderWifiRecoveryPanel(device) {
   const savedAddr = device.address || device.serial || '';
   const { host } = parseHostPort(savedAddr);
   const usbStatus = getUsbRecoveryStatus();
+  const connectPlaceholder = host ? `${host}:xxxxx` : 'e.g. 192.168.1.50:41413';
+  const pairPlaceholder = host ? `${host}:xxxxx` : 'e.g. 192.168.1.50:37000';
 
   return `
-    <div class="phone-wifi-recovery" data-device-id="${escapeHtml(device.id)}">
-      <h4 class="phone-subsection-title">Recover sticky Wi-Fi</h4>
+    <div class="phone-wifi-recovery" data-device-id="${escapeHtml(device.id)}" id="phone-wifi-recovery">
+      <h4 class="phone-subsection-title">Reconnect wireless debugging</h4>
       <p class="phone-step-desc">
-        Pairing can expire. Plug in USB once to enable durable Wi-Fi ADB on port <code>5555</code>
-        (works until the phone reboots).
+        Wireless debugging pairing can expire even when the phone IP stays the same.
+        Try reconnecting first; if that fails, re-pair with a fresh code from the phone.
       </p>
-      <ol class="phone-instructions phone-recovery-steps">
-        <li>Connect this phone to <strong>this computer</strong> with a USB data cable.</li>
-        <li>Enable <strong>USB debugging</strong> and tap <strong>Allow</strong> if prompted.</li>
-        <li>Confirm the phone&rsquo;s Wi-Fi IP below, then enable sticky Wi-Fi.</li>
-      </ol>
-      <p class="phone-usb-status" id="recover-usb-status">${usbStatus.html}</p>
-      <div class="form-group">
-        <label for="recover-wifi-host">Phone Wi-Fi IP</label>
-        <input type="text" id="recover-wifi-host" placeholder="e.g. 192.168.1.50" value="${escapeHtml(host)}">
+      <div class="phone-wifi-subsection">
+        <button type="button" class="btn btn-primary btn-sm" id="reconnect-try-btn" data-device-id="${escapeHtml(device.id)}">
+          Try reconnect
+        </button>
+        <p id="reconnect-result" class="phone-step-result" hidden></p>
       </div>
-      <button type="button" class="btn btn-primary btn-sm" id="recover-wifi-btn" data-device-id="${escapeHtml(device.id)}">
-        Enable sticky Wi-Fi
-      </button>
-      <p id="recover-wifi-result" class="phone-step-result" hidden></p>
+      <div class="phone-wifi-subsection" id="reconnect-pair-section" ${reconnectShowPair ? '' : 'hidden'}>
+        <p class="phone-step-desc">
+          On the phone: <strong>Developer options → Wireless debugging → Pair device with pairing code</strong>.
+          Enter those values below (connect port is usually different from the pairing port).
+        </p>
+        <div class="form-group">
+          <label for="reconnect-pair-address">Pairing address (IP:port)</label>
+          <input type="text" id="reconnect-pair-address" placeholder="${escapeHtml(pairPlaceholder)}" value="${escapeHtml(host ? `${host}:` : '')}">
+        </div>
+        <div class="form-group">
+          <label for="reconnect-pair-code">6-digit pairing code</label>
+          <input type="text" id="reconnect-pair-code" placeholder="123456" maxlength="6" inputmode="numeric" pattern="[0-9]*">
+        </div>
+        <div class="form-group">
+          <label for="reconnect-connect-address">Connect address (IP:port)</label>
+          <input type="text" id="reconnect-connect-address" placeholder="${escapeHtml(connectPlaceholder)}" value="${escapeHtml(savedAddr || (host ? `${host}:` : ''))}">
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" id="reconnect-pair-btn" data-device-id="${escapeHtml(device.id)}">
+          Pair &amp; reconnect
+        </button>
+      </div>
+      <details class="phone-details phone-sticky-recovery">
+        <summary>Alternative: USB sticky Wi-Fi (port 5555)</summary>
+        <p class="phone-step-desc">
+          Plug in USB once to enable durable Wi-Fi ADB on port <code>5555</code>
+          (works until the phone reboots).
+        </p>
+        <ol class="phone-instructions phone-recovery-steps">
+          <li>Connect this phone to <strong>this computer</strong> with a USB data cable.</li>
+          <li>Enable <strong>USB debugging</strong> and tap <strong>Allow</strong> if prompted.</li>
+          <li>Confirm the phone&rsquo;s Wi-Fi IP below, then enable sticky Wi-Fi.</li>
+        </ol>
+        <p class="phone-usb-status" id="recover-usb-status">${usbStatus.html}</p>
+        <div class="form-group">
+          <label for="recover-wifi-host">Phone Wi-Fi IP</label>
+          <input type="text" id="recover-wifi-host" placeholder="e.g. 192.168.1.50" value="${escapeHtml(host)}">
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" id="recover-wifi-btn" data-device-id="${escapeHtml(device.id)}">
+          Enable sticky Wi-Fi
+        </button>
+        <p id="recover-wifi-result" class="phone-step-result" hidden></p>
+      </details>
     </div>`;
 }
 
@@ -303,7 +343,7 @@ function renderRegisteredDevices() {
         ${!isActive ? `<button type="button" class="btn btn-ghost btn-sm" data-action="set-active" data-id="${d.id}">Set active</button>` : ''}
         ${!isDefault ? `<button type="button" class="btn btn-ghost btn-sm" data-action="set-default" data-id="${d.id}">Set default</button>` : ''}
         ${d.connectionType === 'wifi' && d.liveState !== 'device'
-          ? `<button type="button" class="btn btn-ghost btn-sm" data-action="recover-wifi" data-id="${d.id}">Recover Wi-Fi</button>`
+          ? `<button type="button" class="btn btn-ghost btn-sm" data-action="recover-wifi" data-id="${d.id}">Reconnect</button>`
           : ''}
         <button type="button" class="btn btn-ghost btn-sm" data-action="rename" data-id="${d.id}">Rename</button>
         <button type="button" class="btn btn-ghost btn-sm phone-danger-btn" data-action="remove" data-id="${d.id}">Remove</button>`;
@@ -380,6 +420,10 @@ function renderConnectedView() {
 
   const connected = active.connected || status?.connected;
   const showRecovery = !connected && active.connectionType === 'wifi';
+  if (connected) {
+    reconnectShowPair = false;
+    reconnectFocusDeviceId = null;
+  }
 
   return `
     <div class="phone-connected card ${connected ? '' : 'phone-connected-offline'}">
@@ -455,18 +499,35 @@ function syncPolling() {
   if (needsUsbPoll && status?.adbAvailable) {
     pollTimer = setInterval(async () => {
       try {
-        const hostInput = document.getElementById('recover-wifi-host');
-        const preservedHost = hostInput?.value;
-        const resultEl = document.getElementById('recover-wifi-result');
-        const preservedResult = resultEl && !resultEl.hidden
-          ? { text: resultEl.textContent, isError: resultEl.classList.contains('phone-inline-error') }
-          : null;
-
         await loadStatus();
 
         const detectedContainer = container()?.querySelector('.phone-detected-list');
         const devicesCard = container()?.querySelector('.phone-devices-card');
         const connectedCard = container()?.querySelector('.phone-connected');
+        const recoveryPanel = container()?.querySelector('.phone-wifi-recovery');
+        const active = status?.activeDevice;
+        const connected = Boolean(active?.connected || status?.connected);
+        const stillNeedsRecovery = Boolean(
+          recoveryPanel && !connected && active?.connectionType === 'wifi',
+        );
+
+        // Keep the reconnect form mounted while the device is still offline so
+        // typing is never interrupted by the USB/status poll.
+        if (stillNeedsRecovery) {
+          const usbStatusEl = document.getElementById('recover-usb-status');
+          if (usbStatusEl) usbStatusEl.innerHTML = getUsbRecoveryStatus().html;
+
+          if (devicesCard) {
+            const temp = document.createElement('div');
+            temp.innerHTML = renderRegisteredDevices();
+            const newCard = temp.firstElementChild;
+            if (newCard) {
+              devicesCard.replaceWith(newCard);
+              bindDeviceTableEvents();
+            }
+          }
+          return;
+        }
 
         if (detectedContainer) {
           const temp = document.createElement('div');
@@ -494,13 +555,6 @@ function syncPolling() {
             connectedCard.replaceWith(newConnected);
             bindSnapEvents();
             bindRecoverWifiEvents();
-            if (preservedHost != null) {
-              const nextHost = document.getElementById('recover-wifi-host');
-              if (nextHost) nextHost.value = preservedHost;
-            }
-            if (preservedResult) {
-              setStepResult('recover-wifi-result', preservedResult.text, preservedResult.isError);
-            }
           } else {
             connectedCard.remove();
           }
@@ -603,6 +657,47 @@ async function recoverWifi({ deviceId, host } = {}) {
   });
 }
 
+async function reconnectWifi(payload = {}) {
+  return apiFetch('/api/phone/reconnect', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+async function focusWifiReconnect(deviceId) {
+  const device = status?.registeredDevices?.find((d) => d.id === deviceId);
+  if (!device) {
+    showToast('Device not found', 'error');
+    return;
+  }
+  if (device.connectionType !== 'wifi') {
+    showToast('Reconnect is for Wi-Fi devices', 'error');
+    return;
+  }
+
+  reconnectFocusDeviceId = deviceId;
+  reconnectShowPair = false;
+
+  const isActive = deviceId === (status?.activeDeviceId || status?.defaultDeviceId);
+  if (!isActive) {
+    await apiFetch('/api/phone/active', {
+      method: 'POST',
+      body: JSON.stringify({ id: deviceId }),
+    });
+  }
+
+  await loadStatus();
+  render();
+
+  requestAnimationFrame(() => {
+    document.getElementById('phone-wifi-recovery')?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'nearest',
+    });
+    document.getElementById('reconnect-try-btn')?.focus();
+  });
+}
+
 function bindUsbDetectEvents() {
   container()?.querySelectorAll('.phone-add-usb-btn').forEach((btn) => {
     btn.addEventListener('click', async () => {
@@ -654,14 +749,9 @@ function bindDeviceTableEvents() {
           }
           await renameDevice(id, name);
         } else if (action === 'recover-wifi') {
-          const device = status?.registeredDevices?.find((d) => d.id === id);
-          const { host } = parseHostPort(device?.address || device?.serial || '');
           btn.disabled = true;
           try {
-            const result = await recoverWifi({ deviceId: id, host: host || undefined });
-            showToast(result.message || 'Sticky Wi-Fi enabled', 'success');
-            await loadStatus();
-            render();
+            await focusWifiReconnect(id);
           } finally {
             btn.disabled = false;
           }
@@ -676,6 +766,78 @@ function bindDeviceTableEvents() {
 }
 
 function bindRecoverWifiEvents() {
+  document.getElementById('reconnect-try-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('reconnect-try-btn');
+    const deviceId = btn?.dataset.deviceId;
+    btn.disabled = true;
+    setStepResult('reconnect-result', 'Trying saved address and network discovery…');
+
+    try {
+      const result = await reconnectWifi({ deviceId });
+      reconnectShowPair = false;
+      reconnectFocusDeviceId = null;
+      setStepResult('reconnect-result', result.message || `Reconnected at ${result.address}`);
+      showToast(result.message || 'Device reconnected', 'success');
+      await loadStatus();
+      render();
+    } catch (err) {
+      reconnectShowPair = true;
+      const pairSection = document.getElementById('reconnect-pair-section');
+      if (pairSection) pairSection.hidden = false;
+      setStepResult('reconnect-result', err.message, true);
+      showToast('Reconnect failed — re-pair with a pairing code', 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('reconnect-pair-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('reconnect-pair-btn');
+    const deviceId = btn?.dataset.deviceId;
+    const pairParsed = parseHostPort(document.getElementById('reconnect-pair-address')?.value || '');
+    const connectParsed = parseHostPort(document.getElementById('reconnect-connect-address')?.value || '');
+    const pairCode = document.getElementById('reconnect-pair-code')?.value?.trim() || '';
+
+    if (!pairParsed.host || !pairParsed.port || !pairCode) {
+      setStepResult('reconnect-result', 'Enter pairing address and 6-digit code.', true);
+      return;
+    }
+    if (!connectParsed.host || !connectParsed.port) {
+      setStepResult(
+        'reconnect-result',
+        'Enter the connect address (IP:port) from the main Wireless debugging screen.',
+        true,
+      );
+      return;
+    }
+
+    btn.disabled = true;
+    setStepResult('reconnect-result', 'Pairing and reconnecting…');
+
+    try {
+      const result = await reconnectWifi({
+        deviceId,
+        pairHost: pairParsed.host,
+        pairPort: pairParsed.port,
+        pairCode,
+        connectHost: connectParsed.host,
+        connectPort: connectParsed.port,
+      });
+      reconnectShowPair = false;
+      reconnectFocusDeviceId = null;
+      setStepResult('reconnect-result', result.message || `Reconnected at ${result.address}`);
+      showToast(result.message || 'Device reconnected', 'success');
+      await loadStatus();
+      render();
+    } catch (err) {
+      reconnectShowPair = true;
+      setStepResult('reconnect-result', err.message, true);
+      showToast(err.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   document.getElementById('recover-wifi-btn')?.addEventListener('click', async () => {
     const btn = document.getElementById('recover-wifi-btn');
     const host = document.getElementById('recover-wifi-host')?.value?.trim() || '';
@@ -691,6 +853,8 @@ function bindRecoverWifiEvents() {
 
     try {
       const result = await recoverWifi({ deviceId, host });
+      reconnectShowPair = false;
+      reconnectFocusDeviceId = null;
       setStepResult(
         'recover-wifi-result',
         result.message || `Sticky Wi-Fi enabled at ${result.address}`

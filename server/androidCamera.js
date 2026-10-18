@@ -241,6 +241,156 @@ async function connectDevice(host, port) {
   return { address: addr, serial: addr, message: out };
 }
 
+function parseHostPort(value) {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return { host: '', port: '' };
+  const lastColon = trimmed.lastIndexOf(':');
+  if (lastColon === -1) return { host: trimmed, port: '' };
+  return {
+    host: trimmed.slice(0, lastColon),
+    port: trimmed.slice(lastColon + 1),
+  };
+}
+
+async function discoverWifiConnectAddresses() {
+  try {
+    const out = await adb(['mdns', 'services'], { timeout: 15000 });
+    const addresses = [];
+    const re = /_adb-tls-connect\._tcp\s+(\S+:\d+)/gi;
+    let match = re.exec(out);
+    while (match) {
+      if (!addresses.includes(match[1])) addresses.push(match[1]);
+      match = re.exec(out);
+    }
+    return addresses;
+  } catch {
+    return [];
+  }
+}
+
+async function tryConnectAddress(addr) {
+  const out = await adb(['connect', addr], { timeout: 30000 });
+  if (!/connected|already connected/i.test(out)) {
+    throw new Error(out || `Could not connect to ${addr}`);
+  }
+  return { address: addr, serial: addr, message: out };
+}
+
+async function reconnectWifiDevice({
+  deviceId,
+  pairHost,
+  pairPort,
+  pairCode,
+  connectHost,
+  connectPort,
+} = {}) {
+  let target = null;
+  if (deviceId) {
+    target = findDevice(deviceId);
+    if (!target) throw new Error('Device not found');
+  } else {
+    target = getActiveDevice() || getDefaultDevice();
+  }
+
+  if (!target) {
+    throw new Error('No device configured. Add a Wi-Fi device first.');
+  }
+  if (target.connectionType !== 'wifi') {
+    throw new Error(`"${target.name}" is a USB device. Use USB connection instead.`);
+  }
+
+  const savedAddr = String(target.address || target.serial || '').trim();
+  const saved = parseHostPort(savedAddr);
+  const hostHint = String(connectHost || saved.host || '').trim();
+  const attempted = [];
+  const hasPair = Boolean(
+    String(pairHost || '').trim()
+    && String(pairPort || '').trim()
+    && String(pairCode || '').trim(),
+  );
+  const hasConnect = Boolean(
+    String(connectHost || '').trim()
+    && String(connectPort || '').trim(),
+  );
+
+  if (hasPair) {
+    const pairResult = await pairDevice(pairHost, pairPort, pairCode);
+    attempted.push(`pair ${String(pairHost).trim()}:${String(pairPort).trim()}`);
+
+    let connectAddr = hasConnect
+      ? `${String(connectHost).trim()}:${String(connectPort).trim()}`
+      : '';
+
+    if (!connectAddr && hostHint) {
+      const mdns = await discoverWifiConnectAddresses();
+      connectAddr = mdns.find((addr) => parseHostPort(addr).host === hostHint) || '';
+      if (connectAddr) attempted.push(`mdns ${connectAddr}`);
+    }
+
+    if (!connectAddr) {
+      throw new Error(
+        'Pairing succeeded, but a connect address (IP:port from Wireless debugging) is still required.',
+      );
+    }
+
+    attempted.push(`connect ${connectAddr}`);
+    const connected = await tryConnectAddress(connectAddr);
+    return {
+      ...connected,
+      deviceId: target.id,
+      attempted,
+      message: [pairResult.message, connected.message].filter(Boolean).join(' ').trim()
+        || `Reconnected ${target.name} at ${connectAddr}`,
+    };
+  }
+
+  const candidates = [];
+  if (savedAddr && saved.host && saved.port) {
+    candidates.push(savedAddr);
+  }
+  if (hasConnect) {
+    const explicit = `${String(connectHost).trim()}:${String(connectPort).trim()}`;
+    if (!candidates.includes(explicit)) candidates.push(explicit);
+  }
+
+  const mdns = await discoverWifiConnectAddresses();
+  for (const addr of mdns) {
+    const { host } = parseHostPort(addr);
+    if (hostHint && host !== hostHint) continue;
+    if (!candidates.includes(addr)) candidates.push(addr);
+  }
+
+  const errors = [];
+  for (const addr of candidates) {
+    attempted.push(`connect ${addr}`);
+    try {
+      const connected = await tryConnectAddress(addr);
+      const live = await listDevices();
+      const match = live.find((d) => d.serial === addr && d.state === 'device');
+      if (!match) {
+        const state = live.find((d) => d.serial === addr)?.state || 'missing';
+        errors.push(`${addr}: connected but not ready (${state})`);
+        continue;
+      }
+      return {
+        ...connected,
+        deviceId: target.id,
+        attempted,
+        message: connected.message || `Connected to ${addr}`,
+      };
+    } catch (err) {
+      errors.push(`${addr}: ${err.message}`);
+    }
+  }
+
+  throw new Error(
+    errors.length
+      ? `Could not reconnect. ${errors.join('; ')}. `
+        + 'Open Wireless debugging → Pair device with pairing code, then use Pair & reconnect.'
+      : 'Could not reconnect. Open Wireless debugging → Pair device with pairing code, then use Pair & reconnect.',
+  );
+}
+
 async function enableStickyWifiAdb({ host, port = 5555 } = {}) {
   const hostStr = String(host || '').trim();
   const portNum = Number(port) || 5555;
@@ -984,6 +1134,8 @@ module.exports = {
   getActiveDevice,
   pairDevice,
   connectDevice,
+  discoverWifiConnectAddresses,
+  reconnectWifiDevice,
   enableStickyWifiAdb,
   disconnectAll,
   disconnectDevice,
