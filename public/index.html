@@ -17,7 +17,11 @@
         <p class="logo-sub">Local Meal Analytics</p>
       </div>
       <nav class="sidebar-nav">
-        <button class="nav-item active" data-tab="settings">
+        <button class="nav-item active" data-tab="overview">
+          <span class="nav-icon">ℹ️</span>
+          <span class="nav-label">Overview</span>
+        </button>
+        <button class="nav-item" data-tab="settings">
           <span class="nav-icon">⚙️</span>
           <span class="nav-label">Settings</span>
         </button>
@@ -57,7 +61,65 @@
     </aside>
 
     <main id="content">
-      <section id="panel-settings" class="panel active">
+      <section id="panel-overview" class="panel active">
+        <header class="panel-header">
+          <h2>Overview</h2>
+          <p>Local meal analytics for research: DiningLens is a local web app that turns meal photos into structured dietary data.</p>
+        </header>
+        <div class="panel-body">
+          <div class="overview-hero-frame">
+            <img
+              class="overview-hero"
+              src="images/dininglens-overview.jpg"
+              alt="DiningLens: a plated meal framed by a camera lens and nutrient readouts"
+            >
+          </div>
+
+          <div class="overview-facts">
+            <article class="card">
+              <h3>Capture</h3>
+              <p>Android phone over ADB, or files dropped into <code>data/</code>.</p>
+            </article>
+            <article class="card">
+              <h3>Zones</h3>
+              <p>Named plate regions on one overhead shot, so several meals can share a camera.</p>
+            </article>
+            <article class="card">
+              <h3>Vision AI</h3>
+              <p>Gemini or Claude identifies foods and estimates visible portions.</p>
+            </article>
+            <article class="card">
+              <h3>Prototype</h3>
+              <p>A research data-collection tool. Portion estimates need human review.</p>
+            </article>
+          </div>
+
+          <div class="overview-flow" aria-label="How DiningLens works">
+            <article class="card overview-step">
+              <span class="overview-step-num">1</span>
+              <h3>Capture</h3>
+              <p>Phone or folder</p>
+            </article>
+            <article class="card overview-step">
+              <span class="overview-step-num">2</span>
+              <h3>Store</h3>
+              <p><code>data/</code> on this machine</p>
+            </article>
+            <article class="card overview-step">
+              <span class="overview-step-num">3</span>
+              <h3>Analyze</h3>
+              <p>Zone crop and AI to analyze.</p>
+            </article>
+            <article class="card overview-step">
+              <span class="overview-step-num">4</span>
+              <h3>Review</h3>
+              <p>Charts and JSON export</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="panel-settings" class="panel">
         <header class="panel-header">
           <h2>Settings</h2>
           <p>Configure AI provider settings for meal photo analysis</p>

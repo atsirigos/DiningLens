@@ -12,7 +12,7 @@ const TAB_MODULES = {
   analytics: () => import('./analytics.js'),
 };
 
-let activeTab = 'settings';
+let activeTab = 'overview';
 
 async function cleanupTab(tabName) {
   const modulesWithDestroy = ['phone', 'phone-status'];
@@ -41,15 +41,18 @@ function switchTab(tabName) {
     panel.classList.toggle('active', panel.id === `panel-${tabName}`);
   });
 
+  const loader = TAB_MODULES[tabName];
+  if (!loader) return;
+
   if (!loadedModules[tabName]) {
     loadedModules[tabName] = true;
-    TAB_MODULES[tabName]().then((mod) => {
+    loader().then((mod) => {
       if (mod.init) mod.init();
     }).catch((err) => {
       console.error(`Failed to load ${tabName} module:`, err);
     });
   } else {
-    TAB_MODULES[tabName]().then((mod) => {
+    loader().then((mod) => {
       if (mod.refresh) mod.refresh();
     });
   }
@@ -57,9 +60,4 @@ function switchTab(tabName) {
 
 document.querySelectorAll('.nav-item').forEach((btn) => {
   btn.addEventListener('click', () => switchTab(btn.dataset.tab));
-});
-
-loadedModules.settings = true;
-import('./settings.js').then((mod) => {
-  if (mod.init) mod.init();
 });
