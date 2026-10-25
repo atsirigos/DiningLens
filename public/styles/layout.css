@@ -1460,6 +1460,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
   gap: 1.5rem;
+  align-items: start;
 }
 
 .chart-card {
@@ -1470,14 +1471,261 @@
   margin-bottom: 1rem;
 }
 
+.chart-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.chart-card-header h3 {
+  margin-bottom: 0;
+}
+
+.chart-card-count {
+  margin-left: 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
 .chart-container {
   position: relative;
   height: 280px;
 }
 
+.chart-container-foods {
+  min-height: 280px;
+}
+
+.chart-container-categories {
+  height: 340px;
+}
+
 .analytics-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+.meal-calendar-card:hover {
+  transform: none;
+}
+
+.meal-calendar-scroll {
+  overflow: auto;
+  max-height: 520px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.meal-calendar {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.8125rem;
+}
+
+.meal-calendar caption.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.meal-calendar th,
+.meal-calendar td {
+  border-bottom: 1px solid var(--color-border);
+  background: #fff;
+}
+
+.meal-calendar thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0.45rem 0.35rem;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.meal-calendar thead th:not(.meal-calendar-date) {
+  padding-left: 0.35rem;
+  padding-right: 0;
+  text-align: left;
+  border-left: 1px solid var(--color-border);
+}
+
+.meal-calendar thead th:last-child {
+  border-right: 1px solid var(--color-border);
+}
+
+.meal-calendar .meal-calendar-date {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 7.5rem;
+  padding: 0 0.75rem;
+  text-align: left;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--color-text);
+}
+
+.meal-calendar thead .meal-calendar-date {
+  z-index: 3;
+}
+
+.meal-calendar tbody tr.is-weekend th,
+.meal-calendar tbody tr.is-weekend td {
+  background: #f7f6fc;
+}
+
+.meal-calendar tbody tr.is-month-start th,
+.meal-calendar tbody tr.is-month-start td {
+  border-top: 2px solid rgba(107, 92, 231, 0.22);
+}
+
+.meal-calendar-cell {
+  position: relative;
+  height: 2rem;
+  padding: 0;
+  overflow: visible;
+  border-left: 1px solid var(--color-border);
+}
+
+.meal-calendar-cell:last-child {
+  border-right: 1px solid var(--color-border);
+}
+
+.meal-dot {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 2px #fff;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+}
+
+.meal-dot::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
+}
+
+.meal-calendar tbody tr.is-weekend .meal-dot {
+  box-shadow: 0 0 0 2px #f7f6fc;
+}
+
+.meal-dot:hover,
+.meal-dot:focus-visible,
+.meal-dot.is-open,
+.meal-calendar tbody tr.is-weekend .meal-dot.is-open {
+  transform: translate(-50%, -50%) scale(1.35);
+  z-index: 2;
+  outline: none;
+}
+
+.meal-dot.is-open,
+.meal-calendar tbody tr.is-weekend .meal-dot.is-open {
+  box-shadow: 0 0 0 3px rgba(107, 92, 231, 0.45);
+}
+
+.meal-popout {
+  position: fixed;
+  z-index: 400;
+  width: min(440px, calc(100vw - 24px));
+  max-height: min(70vh, 560px);
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.meal-popout-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-shrink: 0;
+  padding: 0.9rem 1rem 0.7rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.meal-popout-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.meal-popout-file {
+  margin: 0.2rem 0 0;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  word-break: break-word;
+}
+
+.meal-popout-close {
+  flex: none;
+}
+
+.meal-popout-body {
+  overflow: auto;
+  min-height: 0;
+  padding: 0.85rem 1rem 1rem;
+}
+
+.meal-popout-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.meal-popout-meta strong {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.meal-popout-frames {
+  margin-bottom: 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.meal-popout-frames summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+}
+
+.meal-popout-frames ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--color-text-muted);
+}
+
+.meal-popout .meal-section-title {
+  margin-top: 0.75rem;
+}
+
+.meal-popout .meal-items-table {
+  font-size: 0.8125rem;
 }
 
 /* Phone configuration wizard */
