@@ -39,10 +39,17 @@ Return JSON only and match the schema exactly.
 const USER_MESSAGE_BASE =
   'Identify every visible food and drink in this photo and return the JSON schema.';
 
-function buildUserMessage(userContext) {
+const COLLECTION_USER_MESSAGE =
+  'These images are sequential frames from one meal, in time order, earliest first. People eat during the meal, so later frames may show less food. Produce one consensus list of the foods and drinks that were present. Do not list the same food once per frame. Estimate the visible amount from the frame where that item is most fully visible, not an average and not the amount eaten. Return the JSON schema.';
+
+function buildUserMessage(userContext, { collection = false, frameCount = 1 } = {}) {
+  const many = collection && Number(frameCount) > 1;
+  const base = many
+    ? `${COLLECTION_USER_MESSAGE}\n\nThere are ${Number(frameCount)} frames.`
+    : USER_MESSAGE_BASE;
   const context = userContext?.trim();
-  if (!context) return USER_MESSAGE_BASE;
-  return `${USER_MESSAGE_BASE}\n\nContext: ${context}`;
+  if (!context) return base;
+  return `${base}\n\nContext: ${context}`;
 }
 
 module.exports = { SYSTEM_PROMPT, buildUserMessage };

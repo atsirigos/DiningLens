@@ -1,8 +1,10 @@
-import { apiFetch, formatBytes, formatDate, showToast } from './utils.js';
+import { apiFetch, formatBytes, formatDate, isFrameRecording, showToast } from './utils.js';
+import { applySettingsFlags, isFrameRecordingsEnabled } from './featureFlags.js';
 import { groupFiles } from './gallery.js';
 
 let allFiles = [];
 let filteredFiles = [];
+let hiddenFrameCount = 0;
 let lightboxIndex = -1;
 
 const container = () => document.getElementById('trash-content');
@@ -19,11 +21,19 @@ function renderSkeleton() {
 }
 
 function renderToolbar() {
-  const hasItems = allFiles.length > 0;
+  const visible = allFiles.length;
+  const hidden = hiddenFrameCount;
+  const hasItems = visible > 0 || hidden > 0;
+  const summary = visible
+    ? `${visible} item${visible === 1 ? '' : 's'} in trash`
+    : (hidden ? 'No visible items in trash' : 'Trash is empty');
+  const hiddenNote = hidden
+    ? ` ${hidden} frame recording${hidden === 1 ? '' : 's'} hidden. Turn them on in Settings to review them.`
+    : '';
   return `
     <div class="trash-toolbar glass" style="padding: 1rem; margin-bottom: 1rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
       <p class="trash-toolbar-note" style="margin: 0; color: var(--color-text-muted); font-size: 0.875rem;">
-        ${hasItems ? `${allFiles.length} item${allFiles.length === 1 ? '' : 's'} in trash` : 'Trash is empty'}
+        ${summary}${hiddenNote}
       </p>
       <button type="button" class="btn btn-danger btn-sm" id="trash-empty-btn" ${hasItems ? '' : 'disabled'}>Empty trash</button>
     </div>`;
@@ -58,7 +68,10 @@ async function deletePermanent(itemPath, label) {
 }
 
 async function emptyTrash() {
-  if (!window.confirm('Permanently delete all items in trash? This cannot be undone.')) return;
+  const hiddenNote = hiddenFrameCount
+    ? ` This includes ${hiddenFrameCount} hidden frame recording${hiddenFrameCount === 1 ? '' : 's'}.`
+    : '';
+  if (!window.confirm(`Permanently delete all items in trash?${hiddenNote} This cannot be undone.`)) return;
 
   try {
     await apiFetch('/api/trash', { method: 'DELETE' });
@@ -78,8 +91,10 @@ function renderGrid() {
     grid.innerHTML = `
       <div class="empty-state" style="grid-column: 1/-1;">
         <div class="empty-state-icon">🗑️</div>
-        <h3>Trash is empty</h3>
-        <p>Deleted gallery items will appear here.</p>
+        <h3>${hiddenFrameCount ? 'Frame recordings are hidden' : 'Trash is empty'}</h3>
+        <p>${hiddenFrameCount
+          ? 'Turn on frame-by-frame recordings in Settings to review them.'
+          : 'Deleted gallery items will appear here.'}</p>
       </div>`;
     return;
   }
@@ -333,8 +348,19 @@ function handleLightboxKey(e) {
 async function loadData() {
   renderSkeleton();
   try {
-    const files = await apiFetch('/api/trash');
-    allFiles = groupFiles(files);
+    const [files, settings] = await Promise.all([
+      apiFetch('/api/trash'),
+      apiFetch('/api/settings'),
+    ]);
+    applySettingsFlags(settings);
+    const grouped = groupFiles(files);
+    if (isFrameRecordingsEnabled()) {
+      hiddenFrameCount = 0;
+      allFiles = grouped;
+    } else {
+      hiddenFrameCount = grouped.filter((file) => isFrameRecording(file)).length;
+      allFiles = grouped.filter((file) => !isFrameRecording(file));
+    }
     filteredFiles = [...allFiles];
 
     container().innerHTML = `

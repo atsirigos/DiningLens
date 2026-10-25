@@ -1,3 +1,6 @@
+import { apiFetch } from './utils.js';
+import { applySettingsFlags } from './featureFlags.js';
+
 const loadedModules = {};
 
 const TAB_MODULES = {
@@ -61,3 +64,7 @@ function switchTab(tabName) {
 document.querySelectorAll('.nav-item').forEach((btn) => {
   btn.addEventListener('click', () => switchTab(btn.dataset.tab));
 });
+
+apiFetch('/api/settings')
+  .then((settings) => applySettingsFlags(settings))
+  .catch(() => applySettingsFlags({ frameRecordingsEnabled: false }));

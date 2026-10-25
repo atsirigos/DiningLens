@@ -1,4 +1,5 @@
 import { apiFetch, showToast } from './utils.js';
+import { applySettingsFlags, isFrameRecordingsEnabled } from './featureFlags.js';
 
 const DEFAULT_INTERVAL_SECONDS = 30;
 const DEFAULT_MAX_MINUTES = 30;
@@ -141,8 +142,11 @@ function getFormValues() {
   const intervalInput = document.getElementById('recording-interval');
   const maxInput = document.getElementById('recording-max-minutes');
   const modeInput = document.querySelector('input[name="recording-mode"]:checked');
+  const mode = !isFrameRecordingsEnabled()
+    ? MODE_VIDEO
+    : (modeInput?.value || selectedMode || MODE_VIDEO);
   return {
-    mode: modeInput?.value || selectedMode || MODE_VIDEO,
+    mode,
     intervalSeconds: Number(intervalInput?.value) || selectedIntervalSeconds || DEFAULT_INTERVAL_SECONDS,
     maxMinutes: Number(maxInput?.value) || selectedMaxMinutes || DEFAULT_MAX_MINUTES,
   };
@@ -485,9 +489,21 @@ function startStoragePolling() {
   }, 60000);
 }
 
+function configMode() {
+  if (!isFrameRecordingsEnabled()) return MODE_VIDEO;
+  return currentMode();
+}
+
+function framePlaybackVisible() {
+  if (isVideoMode()) return false;
+  if (isFrameRecordingsEnabled()) return true;
+  return isSessionBusy() && status?.mode === MODE_TIMELAPSE;
+}
+
 function renderConfigCard() {
   const busy = isSessionBusy();
-  const mode = currentMode();
+  const mode = configMode();
+  const allowFrames = isFrameRecordingsEnabled();
   const intervalValue = selectedIntervalSeconds;
   const maxValue = selectedMaxMinutes;
 
@@ -495,12 +511,15 @@ function renderConfigCard() {
     <div class="card recording-config">
       <h3 class="recording-section-title">Capture settings</h3>
       <p class="recording-section-desc">
-        Choose <strong>photo frames</strong> (timelapse stills) or <strong>full video</strong>
+        ${allowFrames
+          ? `Choose <strong>photo frames</strong> (timelapse stills) or <strong>full video</strong>
         (phone screen recording via ADB). Files are saved under <code>data/recordings/</code>
-        and appear in the Gallery.
+        and appear in the Gallery.`
+          : `Record <strong>full video</strong> from the phone screen via ADB.
+        Clips are saved under <code>data/recordings/</code> and appear in the Gallery.`}
       </p>
 
-      <fieldset class="recording-mode-fieldset" ${busy ? 'disabled' : ''}>
+      ${allowFrames ? `<fieldset class="recording-mode-fieldset" ${busy ? 'disabled' : ''}>
         <legend class="recording-mode-legend">Recording mode</legend>
         <div class="recording-mode-options">
           <label class="recording-mode-option">
@@ -528,7 +547,7 @@ function renderConfigCard() {
             </span>
           </label>
         </div>
-      </fieldset>
+      </fieldset>` : ''}
 
       <div class="recording-config-grid">
         <div class="form-group" id="recording-interval-group" ${mode === MODE_VIDEO ? 'hidden' : ''}>
@@ -694,6 +713,7 @@ function renderStatusCard() {
 }
 
 function renderPlaybackCard() {
+  if (!isVideoMode() && !framePlaybackVisible()) return '';
   if (isVideoMode()) {
     const videos = getVideos();
     const primary = videos[0];
@@ -795,7 +815,7 @@ function updateLiveStatus() {
     startBtn.disabled = busy;
     startBtn.textContent = starting || status?.status === 'starting'
       ? 'Starting…'
-      : (isVideoMode() ? 'Start video' : 'Start recording');
+      : (configMode() === MODE_VIDEO ? 'Start video' : 'Start recording');
   }
   const stopBtn = document.getElementById('recording-stop-btn');
   if (stopBtn) {
@@ -898,7 +918,7 @@ function render() {
 
   bindEvents();
   updateStorageChart();
-  if (!isVideoMode()) {
+  if (framePlaybackVisible()) {
     showPlaybackFrame();
     syncPlaybackControls();
     if (playbackPlaying) startPlayback();
@@ -1183,6 +1203,8 @@ export async function init() {
       loadStatus(),
       apiFetch('/api/storage').catch(() => null),
     ]);
+    applySettingsFlags(settings);
+    if (!isFrameRecordingsEnabled()) selectedMode = MODE_VIDEO;
     phoneSettings = {
       frameRotation: settings.phone?.frameRotation || 0,
       videoTargetFps: Number(settings.phone?.videoTargetFps) || 0,

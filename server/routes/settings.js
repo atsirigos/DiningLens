@@ -36,6 +36,9 @@ router.post('/settings', (req, res) => {
       ...DEFAULTS,
       ...existing,
       ...incoming,
+      frameRecordingsEnabled: Object.prototype.hasOwnProperty.call(incoming, 'frameRecordingsEnabled')
+        ? incoming.frameRecordingsEnabled === true
+        : existing.frameRecordingsEnabled === true,
       ai: {
         ...DEFAULT_AI,
         ...existing.ai,

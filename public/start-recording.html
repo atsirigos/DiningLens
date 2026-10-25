@@ -507,7 +507,7 @@
     <header>
       <div>
         <h1>Start Recording</h1>
-        <p>Photo frames or full video from your connected phone</p>
+        <p id="page-subtitle">Full video from your connected phone</p>
       </div>
       <div class="header-actions">
         <span id="server-pill" class="pill pill--waiting">
@@ -527,12 +527,12 @@
 
     <section class="glass card" id="recording-card">
       <h2 class="card-title">Recording</h2>
-      <p class="card-desc">
-        Choose photo frames (timelapse) or full video (ADB screenrecord). Files save to
+      <p class="card-desc" id="recording-card-desc">
+        Full video via ADB screenrecord. Files save to
         <code>data/recordings/</code>. Capture runs server-side and continues if you close this tab.
       </p>
 
-      <div class="mode-options" id="mode-options">
+      <div class="mode-options" id="mode-options" hidden>
         <label class="mode-option">
           <input type="radio" name="recording-mode" value="video" checked>
           <span class="mode-card">
@@ -540,7 +540,7 @@
             <span>Continuous MP4 via screenrecord (clips chain every 2 min).</span>
           </span>
         </label>
-        <label class="mode-option">
+        <label class="mode-option" id="mode-timelapse" hidden>
           <input type="radio" name="recording-mode" value="timelapse">
           <span class="mode-card">
             <strong>Photo frames</strong>
@@ -550,11 +550,11 @@
       </div>
 
       <div class="config-grid">
-        <div id="interval-wrap">
+        <div id="interval-wrap" hidden>
           <label for="interval-input">Frequency (seconds per photo)</label>
           <input type="number" id="interval-input" min="5" max="600" value="30">
         </div>
-        <div id="video-fps-wrap" hidden>
+        <div id="video-fps-wrap">
           <label class="recording-postprocess-toggle" style="display:flex;align-items:flex-start;gap:0.5rem;font-weight:600;cursor:pointer;">
             <input type="checkbox" id="video-postprocess-input">
             <span>Postprocess video after capture</span>
@@ -677,6 +677,7 @@
     let serverOnline = false;
     let lastPostprocessFps = 5;
     let savedCapture = null;
+    let frameRecordingsEnabled = false;
 
     async function apiFetch(url, options = {}) {
       const res = await fetch(url, {
@@ -922,7 +923,35 @@
     }
 
     function selectedMode() {
+      const liveFrames = isSessionBusy() && status?.mode === MODE_TIMELAPSE;
+      if (!frameRecordingsEnabled && !liveFrames) return MODE_VIDEO;
       return document.querySelector('input[name="recording-mode"]:checked')?.value || MODE_VIDEO;
+    }
+
+    function applyFrameModeAvailability() {
+      const liveFrames = isSessionBusy() && status?.mode === MODE_TIMELAPSE;
+      const allowFrames = frameRecordingsEnabled || liveFrames;
+      const modeOptions = document.getElementById('mode-options');
+      const timelapse = document.getElementById('mode-timelapse');
+      const subtitle = document.getElementById('page-subtitle');
+      const desc = document.getElementById('recording-card-desc');
+      if (modeOptions) modeOptions.hidden = !allowFrames;
+      if (timelapse) timelapse.hidden = !allowFrames;
+      if (!allowFrames) {
+        const videoRadio = document.querySelector('input[name="recording-mode"][value="video"]');
+        if (videoRadio) videoRadio.checked = true;
+      }
+      if (subtitle) {
+        subtitle.textContent = frameRecordingsEnabled
+          ? 'Photo frames or full video from your connected phone'
+          : 'Full video from your connected phone';
+      }
+      if (desc) {
+        desc.innerHTML = frameRecordingsEnabled
+          ? 'Choose photo frames (timelapse) or full video (ADB screenrecord). Files save to <code>data/recordings/</code>. Capture runs server-side and continues if you close this tab.'
+          : 'Full video via ADB screenrecord. Files save to <code>data/recordings/</code>. Capture runs server-side and continues if you close this tab.';
+      }
+      syncModeUi();
     }
 
     function isVideoMode() {
@@ -1401,6 +1430,7 @@
     async function loadPhoneSettings() {
       try {
         const settings = await apiFetch('/api/settings');
+        frameRecordingsEnabled = settings.frameRecordingsEnabled === true;
         const fps = Number(settings.phone?.videoTargetFps) || 0;
         const toggle = document.getElementById('video-postprocess-input');
         const fpsInput = document.getElementById('video-fps-input');
@@ -1420,6 +1450,7 @@
     async function init() {
       await waitForServer();
       await Promise.all([loadHealth(), loadRecordingStatus(), loadPhoneSettings()]);
+      applyFrameModeAvailability();
       const busy = status?.status === 'recording'
         || status?.status === 'starting'
         || status?.status === 'stopping';

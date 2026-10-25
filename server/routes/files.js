@@ -10,7 +10,6 @@ const { extractVideoFrame, DEFAULT_FRAME_TIME_SEC } = require('../utils/videoFra
 const {
   ALLOWED_VIDEO_TARGET_FPS,
   normalizeVideoTargetFps,
-  probeVideoFps,
   probeVideoMeta,
   startFpsDownsampleJob,
   getFpsJob,
@@ -20,7 +19,7 @@ const {
 const router = express.Router();
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 
-/** @type {Map<string, { mtimeMs: number, size: number, fps: number|null }>} */
+/** @type {Map<string, { mtimeMs: number, size: number, fps: number|null, durationSec: number|null }>} */
 const videoFpsCache = new Map();
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp']);
@@ -55,28 +54,41 @@ function resolveSafePath(filename) {
   return resolved;
 }
 
-async function resolveVideoFps(absVideo, cacheKey) {
+function finiteDuration(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+async function resolveVideoProbe(absVideo, cacheKey) {
   let stat;
   try {
     stat = fs.statSync(absVideo);
   } catch {
-    return null;
+    return { fps: null, durationSec: null };
   }
 
   const cached = videoFpsCache.get(cacheKey);
-  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
-    return cached.fps;
+  if (
+    cached
+    && cached.mtimeMs === stat.mtimeMs
+    && cached.size === stat.size
+    && Object.prototype.hasOwnProperty.call(cached, 'durationSec')
+  ) {
+    return { fps: cached.fps ?? null, durationSec: finiteDuration(cached.durationSec) };
   }
 
   let fps = null;
+  let durationSec = null;
   try {
-    fps = await probeVideoFps(absVideo);
+    const meta = await probeVideoMeta(absVideo);
+    fps = meta?.fps ?? null;
+    durationSec = finiteDuration(meta?.durationSec);
   } catch (err) {
-    console.warn(`[files] video fps probe failed for ${cacheKey}:`, err.message);
+    console.warn(`[files] video probe failed for ${cacheKey}:`, err.message);
   }
 
-  videoFpsCache.set(cacheKey, { mtimeMs: stat.mtimeMs, size: stat.size, fps });
-  return fps;
+  videoFpsCache.set(cacheKey, { mtimeMs: stat.mtimeMs, size: stat.size, fps, durationSec });
+  return { fps, durationSec };
 }
 
 async function attachVideoMeta(files) {
@@ -99,12 +111,13 @@ async function attachVideoMeta(files) {
       }
     }
 
-    const fps = await resolveVideoFps(absVideo, file.path);
+    const { fps, durationSec } = await resolveVideoProbe(absVideo, file.path);
 
     enriched.push({
       ...file,
       thumbPath: fs.existsSync(absThumb) ? thumbRel : null,
       fps,
+      durationSec,
     });
   }
   return enriched;
@@ -259,14 +272,22 @@ router.post('/files/video-fps', async (req, res) => {
     }
 
     let currentFps = null;
+    let currentDurationSec = null;
     try {
-      currentFps = (await probeVideoMeta(resolved)).fps;
+      const meta = await probeVideoMeta(resolved);
+      currentFps = meta?.fps ?? null;
+      currentDurationSec = finiteDuration(meta?.durationSec);
     } catch {
       currentFps = null;
     }
     if (currentFps != null && currentFps <= fps + 0.05) {
       const stat = fs.statSync(resolved);
-      videoFpsCache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, fps: currentFps });
+      videoFpsCache.set(filePath, {
+        mtimeMs: stat.mtimeMs,
+        size: stat.size,
+        fps: currentFps,
+        durationSec: currentDurationSec,
+      });
       return res.json({
         success: true,
         changed: false,
@@ -289,8 +310,15 @@ router.post('/files/video-fps', async (req, res) => {
         }
 
         const stat = fs.statSync(resolved);
-        const probed = downsample.changed ? fps : await resolveVideoFps(resolved, filePath);
-        videoFpsCache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, fps: probed });
+        const probed = downsample.changed
+          ? { fps, durationSec: finiteDuration(downsample.durationSec) }
+          : await resolveVideoProbe(resolved, filePath);
+        videoFpsCache.set(filePath, {
+          mtimeMs: stat.mtimeMs,
+          size: stat.size,
+          fps: probed.fps,
+          durationSec: probed.durationSec,
+        });
 
         const thumbRel = thumbPathForVideo(filePath).split(path.sep).join('/');
         const absThumb = path.join(DATA_DIR, thumbRel);
@@ -300,7 +328,7 @@ router.post('/files/video-fps', async (req, res) => {
           changed: !!downsample.changed,
           skipped: !!downsample.skipped,
           path: filePath,
-          fps: probed,
+          fps: probed.fps,
           previousFps: downsample.previousFps ?? null,
           size: stat.size,
           // Capture time is canonical; never report re-encode mtime as capture.

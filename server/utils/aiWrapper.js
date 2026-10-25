@@ -187,7 +187,7 @@ function recordUsage({ provider, model, meta, usage, success, errorMessage }) {
   });
 }
 
-async function analyzeWithGoogle(apiKey, modelId, mimeType, base64, userMessage) {
+async function analyzeWithGoogle(apiKey, modelId, images, userMessage) {
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({
     model: modelId,
@@ -196,12 +196,12 @@ async function analyzeWithGoogle(apiKey, modelId, mimeType, base64, userMessage)
 
   const result = await model.generateContent([
     userMessage,
-    {
+    ...images.map((image) => ({
       inlineData: {
-        mimeType,
-        data: base64,
+        mimeType: image.mimeType,
+        data: image.base64,
       },
-    },
+    })),
   ]);
 
   const usageMeta = result.response.usageMetadata || {};
@@ -215,7 +215,7 @@ async function analyzeWithGoogle(apiKey, modelId, mimeType, base64, userMessage)
   };
 }
 
-async function analyzeWithAnthropic(apiKey, modelId, mimeType, base64, userMessage) {
+async function analyzeWithAnthropic(apiKey, modelId, images, userMessage) {
   const client = new Anthropic({ apiKey });
 
   const message = await client.messages.create({
@@ -226,14 +226,14 @@ async function analyzeWithAnthropic(apiKey, modelId, mimeType, base64, userMessa
       {
         role: 'user',
         content: [
-          {
+          ...images.map((image) => ({
             type: 'image',
             source: {
               type: 'base64',
-              media_type: mimeType,
-              data: base64,
+              media_type: image.mimeType,
+              data: image.base64,
             },
-          },
+          })),
           {
             type: 'text',
             text: userMessage,
@@ -258,7 +258,12 @@ async function analyzeWithAnthropic(apiKey, modelId, mimeType, base64, userMessa
   };
 }
 
-async function analyzeImageData(base64, mimeType, settings, userContext, meta = {}) {
+async function analyzeImageList(images, settings, userContext, meta = {}) {
+  const list = (images || []).filter((image) => image?.base64 && image?.mimeType);
+  if (!list.length) {
+    throw new Error('No frames to analyze');
+  }
+
   const provider = settings?.ai?.provider || 'google';
 
   const apiKey = resolveApiKey(settings);
@@ -267,7 +272,10 @@ async function analyzeImageData(base64, mimeType, settings, userContext, meta = 
   }
 
   const modelId = resolveModel(settings);
-  const userMessage = buildUserMessage(userContext);
+  const userMessage = buildUserMessage(userContext, {
+    collection: list.length > 1,
+    frameCount: list.length,
+  });
 
   let text;
   let usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
@@ -275,13 +283,13 @@ async function analyzeImageData(base64, mimeType, settings, userContext, meta = 
   try {
     switch (provider) {
       case 'google': {
-        const response = await analyzeWithGoogle(apiKey, modelId, mimeType, base64, userMessage);
+        const response = await analyzeWithGoogle(apiKey, modelId, list, userMessage);
         text = response.text;
         usage = response.usage;
         break;
       }
       case 'anthropic': {
-        const response = await analyzeWithAnthropic(apiKey, modelId, mimeType, base64, userMessage);
+        const response = await analyzeWithAnthropic(apiKey, modelId, list, userMessage);
         text = response.text;
         usage = response.usage;
         break;
@@ -307,4 +315,8 @@ async function analyzeImageData(base64, mimeType, settings, userContext, meta = 
   }
 }
 
-module.exports = { analyzeImage, analyzeImageData, analyzeMedia };
+async function analyzeImageData(base64, mimeType, settings, userContext, meta = {}) {
+  return analyzeImageList([{ base64, mimeType }], settings, userContext, meta);
+}
+
+module.exports = { analyzeImage, analyzeImageData, analyzeImageList, analyzeMedia };

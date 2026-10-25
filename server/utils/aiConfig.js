@@ -2,10 +2,8 @@ const AI_PROVIDERS = {
   google: {
     label: 'Google',
     models: [
-      { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
-      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
       { id: 'gemini-3-flash-preview', label: 'Gemini 3.0 Flash' },
+      { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' },
     ],
   },
   anthropic: {
@@ -19,7 +17,7 @@ const AI_PROVIDERS = {
 
 const DEFAULT_AI = {
   provider: 'google',
-  model: 'gemini-2.5-flash',
+  model: 'gemini-3-flash-preview',
   apiKey: '',
 };
 

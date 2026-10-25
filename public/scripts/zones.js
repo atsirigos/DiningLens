@@ -1,4 +1,5 @@
 import { apiFetch, showToast } from './utils.js';
+import { applySettingsFlags, isFrameRecordingsEnabled } from './featureFlags.js';
 import {
   getEffectiveDimensions,
   resolveOrientation,
@@ -11,7 +12,7 @@ const MODE_VIDEO = 'video';
 
 let settings = {};
 let files = [];
-let editorMode = MODE_PHOTO;
+let editorMode = MODE_VIDEO;
 let canvas, ctx, img;
 let drawing = false;
 let startX, startY;
@@ -102,6 +103,7 @@ function syncPanelHeader() {
 }
 
 function render() {
+  if (!isFrameRecordingsEnabled()) editorMode = MODE_VIDEO;
   const mediaFiles = mediaFilesForMode();
   const reference = getReference();
   const zones = getActiveZones();
@@ -112,10 +114,11 @@ function render() {
     <div class="settings-grid">
       <div class="card">
         <h3>Zone Editor</h3>
+        ${isFrameRecordingsEnabled() ? `
         <div class="toggle-group zone-modality-toggle" id="zone-modality-toggle" style="margin-top: 1rem;">
           <button type="button" data-mode="${MODE_PHOTO}" class="${editorMode === MODE_PHOTO ? 'active' : ''}">Photos</button>
           <button type="button" data-mode="${MODE_VIDEO}" class="${editorMode === MODE_VIDEO ? 'active' : ''}">Videos</button>
-        </div>
+        </div>` : ''}
         <div class="form-group" style="margin-top: 1rem;">
           <label for="ref-media-select">${isVideoMode() ? 'Reference Video' : 'Reference Image'}</label>
           <select id="ref-media-select">
@@ -602,7 +605,7 @@ async function saveZones() {
       referenceVideoOrientation: settings.referenceVideoOrientation,
       ai: {
         provider: settings.ai?.provider || 'google',
-        model: settings.ai?.model || 'gemini-2.5-flash',
+        model: settings.ai?.model || 'gemini-3-flash-preview',
       },
     };
 
@@ -627,8 +630,10 @@ export async function init() {
       apiFetch('/api/settings'),
       apiFetch('/api/files'),
     ]);
+    applySettingsFlags(settings);
     if (!Array.isArray(settings.zones)) settings.zones = [];
     if (!Array.isArray(settings.videoZones)) settings.videoZones = [];
+    if (!isFrameRecordingsEnabled()) editorMode = MODE_VIDEO;
 
     const imageFiles = files.filter((f) => f.type === 'image');
     const videoFiles = files.filter((f) => f.type === 'video');

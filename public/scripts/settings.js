@@ -1,4 +1,5 @@
 import { apiFetch, showToast } from './utils.js';
+import { applySettingsFlags } from './featureFlags.js';
 
 let settings = {};
 let usage = null;
@@ -126,6 +127,17 @@ function render() {
   const apiKeySet = settings.ai?.apiKeySet;
 
   container().innerHTML = `
+    <div class="card feature-card">
+      <h3>Features</h3>
+      <label class="feature-toggle">
+        <input type="checkbox" id="frame-recordings-enabled" ${settings.frameRecordingsEnabled ? 'checked' : ''}>
+        <span>Frame-by-frame recordings</span>
+      </label>
+      <p class="feature-toggle-hint">
+        Off by default. Video zones, capture, the gallery, and processing stay available.
+        Turn this on to show photo zones, interval photo capture, and frame recordings.
+      </p>
+    </div>
     <div class="settings-ai-grid">
       <div class="card">
         <h3>AI Configuration</h3>
@@ -234,6 +246,27 @@ function bindEvents() {
   });
 
   document.getElementById('save-settings-btn')?.addEventListener('click', saveSettings);
+
+  document.getElementById('frame-recordings-enabled')?.addEventListener('change', async (e) => {
+    const enabled = e.target.checked;
+    try {
+      settings = await apiFetch('/api/settings', {
+        method: 'POST',
+        body: JSON.stringify({ frameRecordingsEnabled: enabled }),
+      });
+      applySettingsFlags(settings);
+      showToast(
+        enabled
+          ? 'Frame-by-frame recordings are visible'
+          : 'Frame-by-frame recordings are hidden',
+        'success',
+      );
+    } catch (err) {
+      e.target.checked = !enabled;
+      showToast(err.message, 'error');
+    }
+  });
+
   bindUsageEvents();
 }
 
@@ -246,9 +279,10 @@ async function saveSettings() {
       videoZones: settings.videoZones,
       referenceVideo: settings.referenceVideo,
       referenceVideoOrientation: settings.referenceVideoOrientation,
+      frameRecordingsEnabled: document.getElementById('frame-recordings-enabled')?.checked === true,
       ai: {
         provider: document.getElementById('ai-provider')?.value || settings.ai?.provider || 'google',
-        model: document.getElementById('ai-model')?.value || settings.ai?.model || 'gemini-2.5-flash',
+        model: document.getElementById('ai-model')?.value || settings.ai?.model || 'gemini-3-flash-preview',
       },
     };
 
@@ -264,6 +298,7 @@ async function saveSettings() {
 
     const apiKeyInput = document.getElementById('api-key');
     if (apiKeyInput) apiKeyInput.value = '';
+    applySettingsFlags(settings);
     showToast('Configuration saved successfully', 'success');
     render();
   } catch (err) {

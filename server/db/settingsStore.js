@@ -63,6 +63,8 @@ const DEFAULTS = {
   videoZones: [],
   referenceVideo: null,
   referenceVideoOrientation: null,
+  /** Photo zones, interval stills, and frame recordings. Off keeps the video workflow. */
+  frameRecordingsEnabled: false,
   ai: { ...DEFAULT_AI },
   phone: { ...DEFAULT_PHONE },
 };
@@ -160,6 +162,7 @@ function normalize(settings) {
     referenceVideoOrientation: settings?.referenceVideoOrientation != null
       ? normalizeOrientation(settings.referenceVideoOrientation)
       : null,
+    frameRecordingsEnabled: settings?.frameRecordingsEnabled === true,
     ai: { ...DEFAULT_AI, ...settings?.ai },
     phone: normalizePhone(settings?.phone),
   };

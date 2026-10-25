@@ -3,6 +3,8 @@
  * Update these rates when provider pricing changes.
  */
 const MODEL_PRICING = {
+  // Same published Flash rates as 2.5 until 3.8 rates are confirmed.
+  'gemini-3.8-flash': { inputPerMillion: 0.15, outputPerMillion: 0.60 },
   'gemini-2.0-flash': { inputPerMillion: 0.10, outputPerMillion: 0.40 },
   'gemini-2.5-flash': { inputPerMillion: 0.15, outputPerMillion: 0.60 },
   'gemini-2.5-pro': { inputPerMillion: 1.25, outputPerMillion: 10.00 },

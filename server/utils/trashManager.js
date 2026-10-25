@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const { getStatus } = require('../recordingManager');
+const { deleteMealAnalysis } = require('../db/mealAnalysisStore');
 
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const TRASH_DIR = path.join(DATA_DIR, '.trash');
@@ -148,6 +149,7 @@ function clearResultsForPaths(paths) {
   }
 
   if (changed) writeResults(results);
+  deleteMealAnalysis(paths);
 }
 
 function scanTrashDirectory(dir, baseDir = dir) {

@@ -61,6 +61,7 @@ export function confirmZoneProcessing({
   zones = [],
   orientationDeg = null,
   mediaType = 'image',
+  initialFrameTimeSec = null,
 } = {}) {
   const isVideo = mediaType === 'video';
   const hasZones = Array.isArray(zones) && zones.length > 0;
@@ -78,7 +79,10 @@ export function confirmZoneProcessing({
     modal.setAttribute('aria-labelledby', 'zone-preview-title');
 
     const mediaPath = filePath || filename;
-    let selectedTimeSec = 0.5;
+    const requestedStart = Number(initialFrameTimeSec);
+    let selectedTimeSec = Number.isFinite(requestedStart) && requestedStart >= 0
+      ? requestedStart
+      : 0.5;
 
     modal.innerHTML = `
       <div class="zone-preview-backdrop" data-action="cancel"></div>
@@ -195,7 +199,10 @@ export function confirmZoneProcessing({
         scrubber.min = '0';
         scrubber.max = String(duration);
         scrubber.step = duration > 60 ? '0.1' : '0.05';
-        const initial = Math.min(0.5, Math.max(0, duration * 0.1));
+        const fallback = Math.min(0.5, Math.max(0, duration * 0.1));
+        const initial = Number.isFinite(requestedStart) && requestedStart >= 0
+          ? Math.min(requestedStart, Math.max(0, duration - 0.05))
+          : fallback;
         scrubber.value = String(initial);
         seekTo(initial);
       });

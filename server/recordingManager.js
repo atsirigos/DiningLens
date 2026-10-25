@@ -754,6 +754,9 @@ async function startRecording({ mode, intervalSeconds, maxMinutes, videoTargetFp
   }
 
   const recordingMode = parseMode(mode);
+  if (recordingMode === MODE_TIMELAPSE && getSettings().frameRecordingsEnabled !== true) {
+    throw new Error('Frame-by-frame recordings are turned off. Enable them in Settings.');
+  }
   const phoneSettings = getSettings().phone || {};
   const hasInterval = intervalSeconds !== undefined && intervalSeconds !== null && intervalSeconds !== '';
   const hasMax = maxMinutes !== undefined && maxMinutes !== null && maxMinutes !== '';
