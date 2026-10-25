@@ -39,15 +39,6 @@ function getResultForFileKey(fileKey) {
   return results[key] || results[String(key).split('/').pop()] || null;
 }
 
-function getUserContext() {
-  return document.getElementById('meal-context')?.value.trim() || '';
-}
-
-function restoreUserContext(userContext) {
-  const ctx = document.getElementById('meal-context');
-  if (ctx && userContext) ctx.value = userContext;
-}
-
 function getStatus(fileKey) {
   if (processing.has(fileKey)) return 'processing';
   if (getResultForFileKey(fileKey)) return 'done';
@@ -298,16 +289,6 @@ function render() {
 
   container().innerHTML = `
     ${renderZoneBanner()}
-    <div class="card" style="padding: 1rem;">
-      <div class="form-group" style="margin-bottom: 0;">
-        <label for="meal-context">Meal context (optional)</label>
-        <input
-          type="text"
-          id="meal-context"
-          placeholder="e.g. half portion, restaurant meal, dressing on the side"
-        >
-      </div>
-    </div>
     <div class="processing-actions">
       <button class="btn btn-primary" id="process-all-btn" ${processing.size > 0 ? 'disabled' : ''}>
         Process All (${items.length - doneCount} remaining)
@@ -359,6 +340,43 @@ function updateRowStatus(fileKey, status) {
   }
 }
 
+function markCardProcessed(fileKey, result) {
+  const card = cardFor(fileKey);
+  if (!card) return;
+  expanded.delete(fileKey);
+  card.classList.remove('is-open');
+  card.querySelector('.processing-card-detail')?.remove();
+  updateRowStatus(fileKey, 'done');
+
+  const row = card.querySelector('.processing-row');
+  if (row && !row.querySelector('.toggle-results-btn')) {
+    const resultsBtn = document.createElement('button');
+    resultsBtn.type = 'button';
+    resultsBtn.className = 'btn btn-ghost btn-sm toggle-results-btn';
+    resultsBtn.dataset.file = fileKey;
+    resultsBtn.setAttribute('aria-expanded', 'false');
+    resultsBtn.textContent = 'Results';
+    resultsBtn.addEventListener('click', () => toggleResults(fileKey));
+
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'btn btn-danger btn-sm clear-btn';
+    clearBtn.dataset.file = fileKey;
+    clearBtn.textContent = 'Clear';
+    clearBtn.addEventListener('click', () => clearCache(fileKey));
+
+    row.append(resultsBtn, clearBtn);
+  }
+
+  const summary = renderFoodPreview(result);
+  const existing = card.querySelector('.processing-food-summary');
+  if (summary) {
+    card.classList.add('has-foods');
+    if (existing) existing.outerHTML = summary;
+    else row?.insertAdjacentHTML('afterend', summary);
+  }
+}
+
 function scrollToCard(fileKey) {
   const card = cardFor(fileKey);
   if (!card) return;
@@ -367,16 +385,10 @@ function scrollToCard(fileKey) {
   setTimeout(() => card.classList.remove('processing-row-highlight'), 2200);
 }
 
-function rerenderKeepingContext() {
-  const userContext = getUserContext();
-  render();
-  restoreUserContext(userContext);
-}
-
 function toggleResults(fileKey) {
   if (expanded.has(fileKey)) expanded.delete(fileKey);
   else expanded.add(fileKey);
-  rerenderKeepingContext();
+  render();
   if (expanded.has(fileKey)) scrollToCard(fileKey);
 }
 
@@ -435,16 +447,12 @@ async function processMeal(mealPath) {
 
   processing.add(mealPath);
   updateRowStatus(mealPath, 'processing');
-  const userContext = getUserContext();
   let summary = null;
 
   try {
     const data = await apiFetch('/api/process-meal', {
       method: 'POST',
-      body: JSON.stringify({
-        mealPath,
-        userContext: userContext || undefined,
-      }),
+      body: JSON.stringify({ mealPath }),
     });
     results[mealPath] = data.result;
     summary = data.result;
@@ -456,7 +464,6 @@ async function processMeal(mealPath) {
     processing.delete(mealPath);
     if (summary) expanded.add(mealPath);
     render();
-    restoreUserContext(userContext);
     if (summary) scrollToCard(mealPath);
   }
 }
@@ -484,14 +491,10 @@ async function processFile(fileKey) {
   processing.add(fileKey);
   updateRowStatus(fileKey, 'processing');
 
-  const userContext = getUserContext();
   let summary = null;
 
   try {
-    const body = {
-      filename,
-      userContext: userContext || undefined,
-    };
+    const body = { filename };
     if (mediaType === 'video' && Number.isFinite(Number(pick.frameTimeSec))) {
       body.frameTimeSec = Number(pick.frameTimeSec);
     }
@@ -514,7 +517,6 @@ async function processFile(fileKey) {
     processing.delete(fileKey);
     if (summary) expanded.add(fileKey);
     render();
-    restoreUserContext(userContext);
     if (summary) scrollToCard(fileKey);
   }
 }
@@ -526,7 +528,6 @@ async function processAll() {
     return;
   }
 
-  const userContext = getUserContext();
   const progressWrap = document.getElementById('batch-progress');
   const progressFill = document.getElementById('progress-fill');
   const progressText = document.getElementById('progress-text');
@@ -535,7 +536,6 @@ async function processAll() {
 
   let completed = 0;
   const total = pending.length;
-  let lastKey = null;
 
   for (const item of pending) {
     const key = itemKey(item);
@@ -557,10 +557,7 @@ async function processAll() {
       processing.add(key);
       updateRowStatus(key, 'processing');
       try {
-        const body = {
-          filename: key,
-          userContext: userContext || undefined,
-        };
+        const body = { filename: key };
         if (mediaType === 'video' && Number.isFinite(Number(pick.frameTimeSec))) {
           body.frameTimeSec = Number(pick.frameTimeSec);
         }
@@ -569,7 +566,7 @@ async function processAll() {
           body: JSON.stringify(body),
         });
         results[key] = data.result;
-        lastKey = key;
+        markCardProcessed(key, data.result);
       } catch (err) {
         updateRowStatus(key, 'error');
         showToast(PROCESSING_ERROR_MSG, 'error');
@@ -587,13 +584,10 @@ async function processAll() {
     try {
       const data = await apiFetch('/api/process-meal', {
         method: 'POST',
-        body: JSON.stringify({
-          mealPath: key,
-          userContext: userContext || undefined,
-        }),
+        body: JSON.stringify({ mealPath: key }),
       });
       results[key] = data.result;
-      lastKey = key;
+      markCardProcessed(key, data.result);
     } catch (err) {
       updateRowStatus(key, 'error');
       showToast(err.message || PROCESSING_ERROR_MSG, 'error');
@@ -608,10 +602,7 @@ async function processAll() {
   if (completed > 0) {
     showToast(`Batch complete: ${completed}/${total} processed`, 'success');
   }
-  if (lastKey) expanded.add(lastKey);
   render();
-  restoreUserContext(userContext);
-  if (lastKey) scrollToCard(lastKey);
 }
 
 export async function init() {
