@@ -5,6 +5,7 @@ const { analyzeMedia } = require('../utils/aiWrapper');
 const { analyzeMealDirectory } = require('../utils/mealConsensus');
 const { getSettings } = require('../db/settingsStore');
 const { saveMealAnalysis, deleteMealAnalysis } = require('../db/mealAnalysisStore');
+const { syncFoodTaxonomy } = require('../utils/foodTaxonomy');
 
 const router = express.Router();
 const RESULTS_FILE = path.join(__dirname, '..', '..', 'processed', 'results.json');
@@ -23,6 +24,7 @@ function readResults() {
 
 function writeResults(results) {
   fs.writeFileSync(RESULTS_FILE, JSON.stringify(results, null, 2), 'utf8');
+  syncFoodTaxonomy(results);
 }
 
 function normalizeMealKey(mealPath) {
@@ -62,6 +64,15 @@ router.get('/results', (req, res) => {
     res.json(readResults());
   } catch (err) {
     res.status(500).json({ error: 'Failed to read results' });
+  }
+});
+
+router.get('/food-taxonomy', async (req, res) => {
+  try {
+    const taxonomy = await syncFoodTaxonomy(readResults());
+    res.json(taxonomy);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to classify foods' });
   }
 });
 

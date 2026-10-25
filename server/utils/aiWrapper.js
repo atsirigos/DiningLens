@@ -319,4 +319,125 @@ async function analyzeImageData(base64, mimeType, settings, userContext, meta = 
   return analyzeImageList([{ base64, mimeType }], settings, userContext, meta);
 }
 
-module.exports = { analyzeImage, analyzeImageData, analyzeImageList, analyzeMedia };
+async function completeWithGoogle(apiKey, modelId, system, user, maxOutputTokens, thinkingBudget) {
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const generationConfig = {
+    temperature: 0,
+    maxOutputTokens,
+    responseMimeType: 'application/json',
+  };
+  if (thinkingBudget != null) {
+    generationConfig.thinkingConfig = { thinkingBudget };
+  }
+  const model = genAI.getGenerativeModel({
+    model: modelId,
+    systemInstruction: system,
+    generationConfig,
+  });
+  const result = await model.generateContent(user);
+  const usageMeta = result.response.usageMetadata || {};
+  const inputTokens = usageMeta.promptTokenCount || 0;
+  const candidateTokens = usageMeta.candidatesTokenCount || 0;
+  const totalTokens = usageMeta.totalTokenCount || inputTokens + candidateTokens;
+  const thoughtTokens = Number(usageMeta.thoughtsTokenCount)
+    || Math.max(0, totalTokens - inputTokens - candidateTokens);
+  return {
+    text: result.response.text(),
+    usage: {
+      inputTokens,
+      outputTokens: candidateTokens + thoughtTokens,
+      totalTokens,
+    },
+  };
+}
+
+async function completeWithAnthropic(apiKey, modelId, system, user, maxOutputTokens) {
+  const client = new Anthropic({ apiKey });
+  const message = await client.messages.create({
+    model: modelId,
+    max_tokens: maxOutputTokens,
+    temperature: 0,
+    system,
+    messages: [{ role: 'user', content: user }],
+  });
+  const textBlock = message.content.find((block) => block.type === 'text');
+  if (!textBlock?.text) {
+    throw new Error('No text response from Anthropic');
+  }
+  return {
+    text: textBlock.text,
+    usage: {
+      inputTokens: message.usage?.input_tokens || 0,
+      outputTokens: message.usage?.output_tokens || 0,
+      totalTokens: (message.usage?.input_tokens || 0) + (message.usage?.output_tokens || 0),
+    },
+  };
+}
+
+/**
+ * Text-only completion. Records the call in the API usage log.
+ */
+async function completeText(settings, {
+  system,
+  user,
+  meta = {},
+  maxOutputTokens = 8192,
+  thinkingBudget = null,
+} = {}) {
+  const provider = settings?.ai?.provider || 'google';
+  const apiKey = resolveApiKey(settings);
+  if (!apiKey) {
+    throw new Error('API key is not configured. Add one in Settings.');
+  }
+
+  const modelId = resolveModel(settings);
+  let usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+
+  try {
+    let text;
+    switch (provider) {
+      case 'google': {
+        const response = await completeWithGoogle(
+          apiKey,
+          modelId,
+          system,
+          user,
+          maxOutputTokens,
+          thinkingBudget,
+        );
+        text = response.text;
+        usage = response.usage;
+        break;
+      }
+      case 'anthropic': {
+        const response = await completeWithAnthropic(apiKey, modelId, system, user, maxOutputTokens);
+        text = response.text;
+        usage = response.usage;
+        break;
+      }
+      default:
+        throw new Error(`Provider "${provider}" is not supported`);
+    }
+
+    recordUsage({ provider, model: modelId, meta, usage, success: true });
+    return { text, usage, provider, model: modelId };
+  } catch (err) {
+    recordUsage({
+      provider,
+      model: modelId,
+      meta,
+      usage,
+      success: false,
+      errorMessage: err.message,
+    });
+    throw err;
+  }
+}
+
+module.exports = {
+  analyzeImage,
+  analyzeImageData,
+  analyzeImageList,
+  analyzeMedia,
+  completeText,
+};

@@ -2,6 +2,7 @@ import { apiFetch, parseFilenameDate, parseSessionStart, formatFriendlyDateTime,
 import { normalizeResultForAnalytics, formatWeight, renderMealSummary } from './mealResults.js';
 
 let results = {};
+let foodTaxonomy = { entries: {} };
 let charts = [];
 let foodsExpanded = false;
 let mealById = new Map();
@@ -10,8 +11,6 @@ let mealPopoutAnchor = null;
 let mealPopoutListenersBound = false;
 
 const FOODS_COLLAPSED = 20;
-
-const ACCENT_COLORS = ['#6b5ce7', '#e85d8a', '#0d9488', '#d97706', '#dc2626', '#0891b2'];
 
 const FOOD_CATEGORY_RULES = [
   ['Drinks', /\b(waters?|coffees?|teas?|juices?|sodas?|wines?|beers?)\b/],
@@ -47,10 +46,19 @@ function foodCategory(name) {
   return 'Other';
 }
 
-function categoryCounts(foodFreq) {
+function mapFood(rawName) {
+  const entry = foodTaxonomy?.entries?.[rawName];
+  if (entry?.canonical) {
+    const category = CATEGORY_COLORS[entry.category] ? entry.category : foodCategory(entry.canonical);
+    return { canonical: entry.canonical, category };
+  }
+  return { canonical: rawName, category: foodCategory(rawName) };
+}
+
+function categoryCounts(foodFreq, categoryByFood) {
   const counts = {};
   for (const [name, count] of Object.entries(foodFreq)) {
-    const category = foodCategory(name);
+    const category = categoryByFood[name] || 'Other';
     counts[category] = (counts[category] || 0) + count;
   }
   return Object.entries(counts).sort((a, b) => b[1] - a[1]);
@@ -68,6 +76,7 @@ function destroyCharts() {
 function computeAggregates() {
   const entries = Object.entries(results);
   const foodFreq = {};
+  const categoryVotes = {};
   const weightTimeline = {};
   let compositeItems = 0;
 
@@ -81,13 +90,21 @@ function computeAggregates() {
     }
 
     for (const item of normalized.items) {
-      const name = item.name;
-      if (name) foodFreq[name] = (foodFreq[name] || 0) + 1;
+      if (!item.name) continue;
+      const mapped = mapFood(item.name);
+      foodFreq[mapped.canonical] = (foodFreq[mapped.canonical] || 0) + 1;
+      const votes = categoryVotes[mapped.canonical] || (categoryVotes[mapped.canonical] = {});
+      votes[mapped.category] = (votes[mapped.category] || 0) + 1;
       if (item.is_composite) compositeItems += 1;
     }
   }
 
-  return { entries, foodFreq, weightTimeline, compositeItems };
+  const categoryByFood = {};
+  for (const [name, votes] of Object.entries(categoryVotes)) {
+    categoryByFood[name] = Object.entries(votes).sort((a, b) => b[1] - a[1])[0][0];
+  }
+
+  return { entries, foodFreq, categoryByFood, weightTimeline, compositeItems };
 }
 
 function computeStats(agg) {
@@ -468,7 +485,7 @@ function updateFoodsToggle(total) {
   btn.setAttribute('aria-expanded', String(foodsExpanded));
 }
 
-function createFoodChart(foodFreq) {
+function createFoodChart(foodFreq, categoryByFood) {
   const sorted = rankedFoods(foodFreq);
   const visible = foodsExpanded ? sorted : sorted.slice(0, FOODS_COLLAPSED);
   const wrap = document.getElementById('chart-foods-wrap');
@@ -485,7 +502,7 @@ function createFoodChart(foodFreq) {
       datasets: [{
         label: 'Count',
         data: visible.map(([, count]) => count),
-        backgroundColor: ACCENT_COLORS[0],
+        backgroundColor: visible.map(([name]) => CATEGORY_COLORS[categoryByFood[name]] || CATEGORY_COLORS.Other),
         borderRadius: 6,
         maxBarThickness: 16,
       }],
@@ -494,8 +511,8 @@ function createFoodChart(foodFreq) {
   }));
 }
 
-function createCategoryChart(foodFreq) {
-  const ranked = categoryCounts(foodFreq);
+function createCategoryChart(foodFreq, categoryByFood) {
+  const ranked = categoryCounts(foodFreq, categoryByFood);
   const ctx = document.getElementById('chart-categories');
   if (!ctx || ranked.length === 0) return;
 
@@ -544,10 +561,10 @@ function createCategoryChart(foodFreq) {
   }));
 }
 
-function drawAnalyticsCharts(foodFreq) {
+function drawAnalyticsCharts(foodFreq, categoryByFood) {
   destroyCharts();
-  createFoodChart(foodFreq);
-  createCategoryChart(foodFreq);
+  createFoodChart(foodFreq, categoryByFood);
+  createCategoryChart(foodFreq, categoryByFood);
 }
 
 function exportResults() {
@@ -591,16 +608,24 @@ function render() {
   document.getElementById('export-btn')?.addEventListener('click', exportResults);
   document.getElementById('foods-expand-btn')?.addEventListener('click', () => {
     foodsExpanded = !foodsExpanded;
-    drawAnalyticsCharts(agg.foodFreq);
+    drawAnalyticsCharts(agg.foodFreq, agg.categoryByFood);
   });
 
-  drawAnalyticsCharts(agg.foodFreq);
+  drawAnalyticsCharts(agg.foodFreq, agg.categoryByFood);
 }
 
 export async function init() {
   container().innerHTML = '<div class="loading-center"><div class="loading-spinner"></div></div>';
   try {
-    results = await apiFetch('/api/results');
+    const [loadedResults, taxonomy] = await Promise.all([
+      apiFetch('/api/results'),
+      apiFetch('/api/food-taxonomy').catch((err) => {
+        showToast(`Food grouping unavailable: ${err.message}`, 'error');
+        return { entries: {} };
+      }),
+    ]);
+    results = loadedResults;
+    foodTaxonomy = taxonomy || { entries: {} };
     render();
   } catch (err) {
     container().innerHTML = `
