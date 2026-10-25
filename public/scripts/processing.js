@@ -12,6 +12,11 @@ let appSettings = { zones: [], videoZones: [] };
 let processing = new Set();
 const expanded = new Set();
 
+function showOnly(fileKey) {
+  expanded.clear();
+  if (fileKey) expanded.add(fileKey);
+}
+
 const container = () => document.getElementById('processing-content');
 
 function getFileKey(file) {
@@ -148,7 +153,7 @@ function frameLabel(frame, index) {
 }
 
 function frameCropUrl(frame, zone) {
-  let url = `/api/zone-crop?file=${encodeURIComponent(frame.file)}&zone=${encodeURIComponent(zone)}`;
+  let url = `/api/zone-crop?file=${encodeURIComponent(frame.file)}&zone=${encodeURIComponent(zone)}&thumb=1`;
   if (Number.isFinite(Number(frame.timeSec)) && Number(frame.timeSec) >= 0) {
     url += `&timeSec=${encodeURIComponent(String(frame.timeSec))}`;
   }
@@ -171,7 +176,7 @@ function renderFrameSets(result, item) {
               const label = frameLabel(frame, index);
               return `
                 <figure class="analysis-zone-crop processing-frame-thumb">
-                  <img src="${frameCropUrl(frame, zone)}" alt="${escapeHtml(label)}" loading="lazy">
+                  <img src="${frameCropUrl(frame, zone)}" alt="${escapeHtml(label)}" loading="${index < 4 ? 'eager' : 'lazy'}" decoding="async">
                   <figcaption title="${escapeHtml(label)}">${escapeHtml(label)}</figcaption>
                 </figure>`;
             }).join('')}
@@ -268,7 +273,7 @@ function render() {
   const pendingFocus = takePendingFocus();
   const items = groupedItems();
   if (pendingFocus && items.some((item) => itemKey(item) === pendingFocus)) {
-    expanded.add(pendingFocus);
+    showOnly(pendingFocus);
   } else if (pendingFocus) {
     showToast('Could not find that meal in the processing list', 'info');
   }
@@ -386,8 +391,8 @@ function scrollToCard(fileKey) {
 }
 
 function toggleResults(fileKey) {
-  if (expanded.has(fileKey)) expanded.delete(fileKey);
-  else expanded.add(fileKey);
+  if (expanded.has(fileKey)) expanded.clear();
+  else showOnly(fileKey);
   render();
   if (expanded.has(fileKey)) scrollToCard(fileKey);
 }
@@ -462,7 +467,7 @@ async function processMeal(mealPath) {
     showToast(err.message || PROCESSING_ERROR_MSG, 'error');
   } finally {
     processing.delete(mealPath);
-    if (summary) expanded.add(mealPath);
+    if (summary) showOnly(mealPath);
     render();
     if (summary) scrollToCard(mealPath);
   }
@@ -515,7 +520,7 @@ async function processFile(fileKey) {
     showToast(PROCESSING_ERROR_MSG, 'error');
   } finally {
     processing.delete(fileKey);
-    if (summary) expanded.add(fileKey);
+    if (summary) showOnly(fileKey);
     render();
     if (summary) scrollToCard(fileKey);
   }

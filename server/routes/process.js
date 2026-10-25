@@ -6,6 +6,7 @@ const { analyzeMealDirectory } = require('../utils/mealConsensus');
 const { getSettings } = require('../db/settingsStore');
 const { saveMealAnalysis, deleteMealAnalysis } = require('../db/mealAnalysisStore');
 const { syncFoodTaxonomy } = require('../utils/foodTaxonomy');
+const { warmResultFrameThumbs } = require('../utils/zoneCropThumb');
 
 const router = express.Router();
 const RESULTS_FILE = path.join(__dirname, '..', '..', 'processed', 'results.json');
@@ -110,6 +111,7 @@ router.post('/process', async (req, res) => {
     results[filename] = result;
     writeResults(results);
     saveMealAnalysis(filename, result);
+    warmResultFrameThumbs(result);
 
     res.json({ cached: false, result });
   } catch (err) {
@@ -142,6 +144,7 @@ router.post('/process-meal', async (req, res) => {
     results[located.key] = result;
     writeResults(results);
     saveMealAnalysis(located.key, result);
+    warmResultFrameThumbs(result);
 
     res.json({ cached: false, result });
   } catch (err) {

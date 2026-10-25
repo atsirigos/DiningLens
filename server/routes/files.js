@@ -7,6 +7,7 @@ const { cropZoneFromPhoto, cropZoneFromBuffer } = require('../utils/zoneCropper'
 const { rotateImageFile, normalizeOrientation } = require('../utils/imageRotate');
 const { thumbPathForVideo, ensureVideoThumbnail, generateVideoThumbnail } = require('../utils/videoThumb');
 const { extractVideoFrame, DEFAULT_FRAME_TIME_SEC } = require('../utils/videoFrame');
+const { ensureZoneCropThumb } = require('../utils/zoneCropThumb');
 const {
   ALLOWED_VIDEO_TARGET_FPS,
   normalizeVideoTargetFps,
@@ -165,12 +166,27 @@ router.get('/zone-crop', async (req, res) => {
       });
     }
 
+    const requested = Number(req.query.timeSec);
+    const timeSec = Number.isFinite(requested) && requested >= 0
+      ? requested
+      : DEFAULT_FRAME_TIME_SEC;
+
+    if (req.query.thumb === '1') {
+      const fileRel = decodeURIComponent(String(file)).replace(/\\/g, '/');
+      const thumbPath = await ensureZoneCropThumb({
+        filePath,
+        fileRel,
+        timeSec: isVideo ? timeSec : null,
+        zone: zoneConfig,
+        orientation,
+      });
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Cache-Control', 'private, max-age=604800');
+      return res.sendFile(thumbPath);
+    }
+
     let image;
     if (isVideo) {
-      const requested = Number(req.query.timeSec);
-      const timeSec = Number.isFinite(requested) && requested >= 0
-        ? requested
-        : DEFAULT_FRAME_TIME_SEC;
       const { buffer } = await extractVideoFrame(filePath, { timeSec });
       image = await cropZoneFromBuffer(buffer, zoneConfig, orientation);
     } else {

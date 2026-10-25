@@ -22,7 +22,7 @@ function getFfmpegPath() {
  * Extract a single JPEG frame from a video at timeSec (default 0.5s).
  * Returns { buffer, mimeType: 'image/jpeg' }.
  */
-async function extractVideoFrame(absoluteVideoPath, { timeSec = DEFAULT_FRAME_TIME_SEC } = {}) {
+async function extractVideoFrame(absoluteVideoPath, { timeSec = DEFAULT_FRAME_TIME_SEC, maxWidth = 0 } = {}) {
   const videoPath = path.resolve(absoluteVideoPath);
   if (!fs.existsSync(videoPath)) {
     throw new Error(`Video not found: ${videoPath}`);
@@ -43,14 +43,21 @@ async function extractVideoFrame(absoluteVideoPath, { timeSec = DEFAULT_FRAME_TI
   );
 
   try {
-    await execFileAsync(ffmpegPath, [
+    const args = [
       '-y',
       '-ss', String(seek),
       '-i', videoPath,
       '-frames:v', '1',
-      '-q:v', '2',
-      tmpPath,
-    ], { timeout: 60000, windowsHide: true });
+    ];
+    const width = Number(maxWidth);
+    if (Number.isFinite(width) && width >= 160) {
+      args.push('-vf', `scale=${Math.round(width)}:-2`, '-q:v', '5');
+    } else {
+      args.push('-q:v', '2');
+    }
+    args.push(tmpPath);
+
+    await execFileAsync(ffmpegPath, args, { timeout: 60000, windowsHide: true });
 
     if (!fs.existsSync(tmpPath) || fs.statSync(tmpPath).size < 64) {
       throw new Error('ffmpeg did not produce a video frame.');

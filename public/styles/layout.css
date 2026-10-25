@@ -1282,8 +1282,13 @@
 }
 
 .processing-frame-thumb img {
-  max-height: 148px;
-  max-width: 210px;
+  display: block;
+  width: auto;
+  height: 112px;
+  max-width: 168px;
+  min-width: 72px;
+  object-fit: contain;
+  background: rgba(15, 23, 42, 0.06);
 }
 
 .processing-frame-thumb figcaption {
