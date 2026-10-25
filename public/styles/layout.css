@@ -1508,6 +1508,16 @@
   height: 340px;
 }
 
+.chart-empty {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.chart-empty[hidden] {
+  display: none;
+}
+
 .analytics-actions {
   display: flex;
   justify-content: flex-end;

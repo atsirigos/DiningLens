@@ -6,6 +6,7 @@ const { analyzeMealDirectory } = require('../utils/mealConsensus');
 const { getSettings } = require('../db/settingsStore');
 const { saveMealAnalysis, deleteMealAnalysis } = require('../db/mealAnalysisStore');
 const { syncFoodTaxonomy } = require('../utils/foodTaxonomy');
+const { syncFoodNutrition } = require('../utils/foodNutrition');
 const { warmResultFrameThumbs } = require('../utils/zoneCropThumb');
 
 const router = express.Router();
@@ -74,6 +75,17 @@ router.get('/food-taxonomy', async (req, res) => {
     res.json(taxonomy);
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to classify foods' });
+  }
+});
+
+router.get('/food-nutrition', async (req, res) => {
+  try {
+    const stored = readResults();
+    const taxonomy = await syncFoodTaxonomy(stored);
+    const nutrition = await syncFoodNutrition(stored, taxonomy);
+    res.json(nutrition);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to estimate nutrition' });
   }
 });
 

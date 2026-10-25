@@ -3,6 +3,7 @@ import { normalizeResultForAnalytics, formatWeight, renderMealSummary } from './
 
 let results = {};
 let foodTaxonomy = { entries: {} };
+let foodNutrition = { entries: {} };
 let charts = [];
 let foodsExpanded = false;
 let mealById = new Map();
@@ -34,6 +35,18 @@ const CATEGORY_COLORS = {
   Other: '#a8b3c4',
 };
 
+const MACRO_COLORS = {
+  Protein: '#7b6cf6',
+  Carbohydrate: '#f0b429',
+  Fat: '#ff8c61',
+};
+
+const MACRO_KCAL = {
+  Protein: 4,
+  Carbohydrate: 4,
+  Fat: 9,
+};
+
 function normalizeFoodName(name) {
   return String(name).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }
@@ -53,6 +66,49 @@ function mapFood(rawName) {
     return { canonical: entry.canonical, category };
   }
   return { canonical: rawName, category: foodCategory(rawName) };
+}
+
+function plausibleNutrition(entry) {
+  if (!entry) return false;
+  const values = [entry.kcalPer100g, entry.proteinPer100g, entry.carbPer100g, entry.fatPer100g];
+  if (values.some((value) => !Number.isFinite(value) || value < 0)) return false;
+  if (entry.kcalPer100g > 900) return false;
+  if (entry.proteinPer100g + entry.carbPer100g + entry.fatPer100g > 100) return false;
+  return true;
+}
+
+function nutritionBreakdown() {
+  const categoryKcal = {};
+  const macroGrams = { Protein: 0, Carbohydrate: 0, Fat: 0 };
+
+  for (const result of Object.values(results)) {
+    const normalized = normalizeResultForAnalytics(result);
+    for (const item of normalized.items) {
+      const grams = Number(item.estimated_weight_grams);
+      if (!item.name || !Number.isFinite(grams) || grams <= 0) continue;
+      const mapped = mapFood(item.name);
+      const entry = foodNutrition?.entries?.[mapped.canonical];
+      if (!plausibleNutrition(entry)) continue;
+      const factor = grams / 100;
+      categoryKcal[mapped.category] = (categoryKcal[mapped.category] || 0) + entry.kcalPer100g * factor;
+      macroGrams.Protein += entry.proteinPer100g * factor;
+      macroGrams.Carbohydrate += entry.carbPer100g * factor;
+      macroGrams.Fat += entry.fatPer100g * factor;
+    }
+  }
+
+  const calories = Object.entries(categoryKcal)
+    .filter(([, kcal]) => kcal > 0)
+    .sort((a, b) => b[1] - a[1]);
+  const macros = ['Protein', 'Carbohydrate', 'Fat']
+    .map((name) => ({
+      name,
+      grams: macroGrams[name],
+      kcal: macroGrams[name] * MACRO_KCAL[name],
+    }))
+    .filter((macro) => macro.kcal > 0);
+
+  return { calories, macros };
 }
 
 function categoryCounts(foodFreq, categoryByFood) {
@@ -107,15 +163,33 @@ function computeAggregates() {
   return { entries, foodFreq, categoryByFood, weightTimeline, compositeItems };
 }
 
+function clipsInResult(filename, result) {
+  const frames = Array.isArray(result?.frames) ? result.frames : [];
+  const fromFrames = frames.filter((frame) => /\.(mp4|mov)$/i.test(String(frame.file || ''))).length;
+  if (fromFrames) return fromFrames;
+
+  const path = String(result?.filename || filename || '');
+  if (result?.mediaType === 'video' || /\.(mp4|mov)$/i.test(path)) return 1;
+
+  if (result?.captureMode === 'video') {
+    const count = Number(result.frameCount ?? result.sourceCount);
+    if (Number.isFinite(count) && count > 0) return count;
+  }
+
+  return 0;
+}
+
 function computeStats(agg) {
   const { entries, foodFreq, weightTimeline, compositeItems } = agg;
   const foods = Object.keys(foodFreq);
   const mostCommon = foods.sort((a, b) => foodFreq[b] - foodFreq[a])[0] || '—';
   const dates = Object.keys(weightTimeline).sort();
   const totalWeight = Object.values(weightTimeline).reduce((s, v) => s + v, 0);
+  const totalClips = entries.reduce((sum, [filename, result]) => sum + clipsInResult(filename, result), 0);
 
   return {
     totalMeals: entries.length,
+    totalClips,
     uniqueFoods: foods.length,
     mostCommon,
     totalWeight: formatWeight(totalWeight),
@@ -129,7 +203,11 @@ function renderStats(stats) {
     <div class="stats-grid">
       <div class="card stat-card glass">
         <div class="stat-value">${stats.totalMeals}</div>
-        <div class="stat-label">Photos Processed</div>
+        <div class="stat-label">Meals Processed</div>
+      </div>
+      <div class="card stat-card glass">
+        <div class="stat-value">${stats.totalClips}</div>
+        <div class="stat-label">Clips Processed</div>
       </div>
       <div class="card stat-card glass">
         <div class="stat-value">${stats.uniqueFoods}</div>
@@ -438,6 +516,20 @@ function renderCharts() {
         <h3>Main Food Categories</h3>
         <div class="chart-container chart-container-categories"><canvas id="chart-categories"></canvas></div>
       </div>
+      <div class="card chart-card glass">
+        <h3>Calories by Category</h3>
+        <div class="chart-container chart-container-categories">
+          <canvas id="chart-calories"></canvas>
+          <p class="chart-empty" id="chart-calories-empty" hidden>No weighed foods with nutrition estimates.</p>
+        </div>
+      </div>
+      <div class="card chart-card glass">
+        <h3>Macronutrients</h3>
+        <div class="chart-container chart-container-categories">
+          <canvas id="chart-macros"></canvas>
+          <p class="chart-empty" id="chart-macros-empty" hidden>No weighed foods with nutrition estimates.</p>
+        </div>
+      </div>
     </div>`;
 }
 
@@ -511,6 +603,54 @@ function createFoodChart(foodFreq, categoryByFood) {
   }));
 }
 
+function doughnutLegend() {
+  return {
+    position: 'right',
+    align: 'center',
+    labels: {
+      color: CHART_TEXT,
+      boxWidth: 8,
+      padding: 12,
+      usePointStyle: true,
+      pointStyle: 'circle',
+    },
+  };
+}
+
+function formatKcal(value) {
+  const rounded = value >= 10 ? Math.round(value) : Math.round(value * 10) / 10;
+  return `${rounded.toLocaleString()} kcal`;
+}
+
+function createDoughnutChart(canvasId, labels, data, colors, tooltipLabel) {
+  const ctx = document.getElementById(canvasId);
+  if (!ctx || labels.length === 0) return;
+  charts.push(new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        backgroundColor: colors,
+        borderWidth: 0,
+        borderRadius: 8,
+        spacing: 3,
+        hoverOffset: 6,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '68%',
+      animation: { duration: 600 },
+      plugins: {
+        legend: doughnutLegend(),
+        tooltip: { callbacks: { label: tooltipLabel } },
+      },
+    },
+  }));
+}
+
 function createCategoryChart(foodFreq, categoryByFood) {
   const ranked = categoryCounts(foodFreq, categoryByFood);
   const ctx = document.getElementById('chart-categories');
@@ -536,17 +676,7 @@ function createCategoryChart(foodFreq, categoryByFood) {
       cutout: '68%',
       animation: { duration: 600 },
       plugins: {
-        legend: {
-          position: 'right',
-          align: 'center',
-          labels: {
-            color: CHART_TEXT,
-            boxWidth: 8,
-            padding: 12,
-            usePointStyle: true,
-            pointStyle: 'circle',
-          },
-        },
+        legend: doughnutLegend(),
         tooltip: {
           callbacks: {
             label(item) {
@@ -561,10 +691,54 @@ function createCategoryChart(foodFreq, categoryByFood) {
   }));
 }
 
+function showChartEmpty(id, empty) {
+  const note = document.getElementById(id);
+  if (note) note.hidden = !empty;
+}
+
+function createCalorieChart(breakdown) {
+  const ranked = breakdown.calories;
+  showChartEmpty('chart-calories-empty', ranked.length === 0);
+  if (ranked.length === 0) return;
+  const total = ranked.reduce((sum, [, kcal]) => sum + kcal, 0);
+  createDoughnutChart(
+    'chart-calories',
+    ranked.map(([category]) => category),
+    ranked.map(([, kcal]) => kcal),
+    ranked.map(([category]) => CATEGORY_COLORS[category] || CATEGORY_COLORS.Other),
+    (item) => {
+      const percent = total ? Math.round((item.parsed / total) * 100) : 0;
+      return ` ${item.label}: ${formatKcal(item.parsed)} (${percent}%)`;
+    },
+  );
+}
+
+function createMacroChart(breakdown) {
+  const macros = breakdown.macros;
+  showChartEmpty('chart-macros-empty', macros.length === 0);
+  if (macros.length === 0) return;
+  const total = macros.reduce((sum, macro) => sum + macro.kcal, 0);
+  createDoughnutChart(
+    'chart-macros',
+    macros.map((macro) => macro.name),
+    macros.map((macro) => macro.kcal),
+    macros.map((macro) => MACRO_COLORS[macro.name]),
+    (item) => {
+      const macro = macros[item.dataIndex];
+      const percent = total ? Math.round((macro.kcal / total) * 100) : 0;
+      const grams = macro.grams >= 10 ? Math.round(macro.grams) : Math.round(macro.grams * 10) / 10;
+      return ` ${macro.name}: ${grams} g · ${formatKcal(macro.kcal)} (${percent}%)`;
+    },
+  );
+}
+
 function drawAnalyticsCharts(foodFreq, categoryByFood) {
   destroyCharts();
   createFoodChart(foodFreq, categoryByFood);
   createCategoryChart(foodFreq, categoryByFood);
+  const breakdown = nutritionBreakdown();
+  createCalorieChart(breakdown);
+  createMacroChart(breakdown);
 }
 
 function exportResults() {
@@ -617,15 +791,20 @@ function render() {
 export async function init() {
   container().innerHTML = '<div class="loading-center"><div class="loading-spinner"></div></div>';
   try {
-    const [loadedResults, taxonomy] = await Promise.all([
+    const [loadedResults, taxonomy, nutrition] = await Promise.all([
       apiFetch('/api/results'),
       apiFetch('/api/food-taxonomy').catch((err) => {
         showToast(`Food grouping unavailable: ${err.message}`, 'error');
         return { entries: {} };
       }),
+      apiFetch('/api/food-nutrition').catch((err) => {
+        showToast(`Nutrition estimates unavailable: ${err.message}`, 'error');
+        return { entries: {} };
+      }),
     ]);
     results = loadedResults;
     foodTaxonomy = taxonomy || { entries: {} };
+    foodNutrition = nutrition || { entries: {} };
     render();
   } catch (err) {
     container().innerHTML = `
